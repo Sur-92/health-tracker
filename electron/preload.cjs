@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getNutritionConfig: () => ipcRenderer.invoke('db:getNutritionConfig'),
   saveNutritionConfig: (config) => ipcRenderer.invoke('db:saveNutritionConfig', config),
 
+  // People / profiles
+  listPeople: () => ipcRenderer.invoke('people:list'),
+  getActivePerson: () => ipcRenderer.invoke('people:getActive'),
+  setActivePerson: (id) => ipcRenderer.invoke('people:setActive', id),
+  addPerson: (person) => ipcRenderer.invoke('people:add', person),
+
   // Cloud backup / restore
   backup: () => ipcRenderer.invoke('backup:run'),
   restore: () => ipcRenderer.invoke('restore:run'),

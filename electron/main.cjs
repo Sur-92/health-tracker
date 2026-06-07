@@ -296,7 +296,90 @@ function initDatabase() {
 
   db.exec(`CREATE INDEX IF NOT EXISTS idx_daily_logs_date ON daily_logs(date)`);
 
-  console.log('Database initialized at:', DB_PATH);
+  migrateSchema();
+
+  console.log('Database initialized at:', DB_PATH, '| people:', db.prepare('SELECT COUNT(*) c FROM people').get().c, '| active:', activePersonId());
+}
+
+// --- Multi-person schema --------------------------------------------------
+// Additive, idempotent, versioned migration. Existing single-person data
+// becomes person #1; foods stay shared. Safe to run on every launch.
+function tableExists(name) {
+  return !!db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(name);
+}
+function columnExists(table, col) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+}
+function getMeta(key, def) {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key=?').get(key);
+  return row ? row.value : def;
+}
+function setMeta(key, val) {
+  db.prepare('INSERT INTO app_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, String(val));
+}
+function activePersonId() {
+  return parseInt(getMeta('active_person_id', '1'), 10) || 1;
+}
+
+function migrateSchema() {
+  db.exec(`CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)`);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS people (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      sex TEXT,
+      birthdate TEXT,
+      height_inches REAL,
+      goal_weight REAL,
+      activity_level TEXT,
+      goal_type TEXT DEFAULT 'nutrition_optimization',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  const migrate = db.transaction(() => {
+    // person_id on per-person row tables (existing tables → backfill to person 1)
+    for (const t of ['vitals', 'daily_logs']) {
+      if (tableExists(t) && !columnExists(t, 'person_id')) {
+        db.exec(`ALTER TABLE ${t} ADD COLUMN person_id INTEGER DEFAULT 1`);
+        db.exec(`UPDATE ${t} SET person_id=1 WHERE person_id IS NULL`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_person ON ${t}(person_id)`);
+      }
+    }
+
+    // nutrition_config: singleton (id CHECK=1) → keyed by person_id
+    if (tableExists('nutrition_config') && !columnExists('nutrition_config', 'person_id')) {
+      db.exec(`
+        CREATE TABLE nutrition_config_new (
+          person_id INTEGER PRIMARY KEY,
+          config_data TEXT NOT NULL,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`INSERT INTO nutrition_config_new (person_id, config_data, updated_at)
+               SELECT 1, config_data, updated_at FROM nutrition_config WHERE id=1`);
+      db.exec(`DROP TABLE nutrition_config`);
+      db.exec(`ALTER TABLE nutrition_config_new RENAME TO nutrition_config`);
+    }
+
+    // Seed person #1 from the legacy user_settings singleton (or defaults)
+    if (db.prepare('SELECT COUNT(*) c FROM people').get().c === 0) {
+      const s = tableExists('user_settings') ? db.prepare('SELECT * FROM user_settings WHERE id=1').get() : null;
+      db.prepare(`INSERT INTO people (id, name, sex, birthdate, height_inches, goal_weight, activity_level, goal_type, notes)
+                  VALUES (1, ?, ?, ?, ?, ?, ?, 'nutrition_optimization', ?)`).run(
+        (s && s.name) || 'You', (s && s.sex) || null, (s && s.birthdate) || null,
+        (s && s.height_inches) || null, (s && s.goal_weight) || null, (s && s.activity_level) || null,
+        (s && s.notes) || null
+      );
+    }
+
+    if (!getMeta('active_person_id', null)) setMeta('active_person_id', '1');
+    setMeta('schema_version', '2');
+  });
+
+  if (parseInt(getMeta('schema_version', '1'), 10) < 2) migrate();
 }
 
 // Create window
@@ -374,21 +457,17 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('db:saveDayLog', (event, date, foods) => {
-    // Delete existing
-    const deleteStmt = db.prepare('DELETE FROM daily_logs WHERE date = ?');
-    deleteStmt.run(date);
-
-    // Insert new
+    const pid = activePersonId();
+    db.prepare('DELETE FROM daily_logs WHERE date = ? AND person_id = ?').run(date, pid);
     if (foods.length > 0) {
-      const insertStmt = db.prepare('INSERT INTO daily_logs (date, food_data) VALUES (?, ?)');
-      insertStmt.run(date, JSON.stringify(foods));
+      db.prepare('INSERT INTO daily_logs (date, food_data, person_id) VALUES (?, ?, ?)').run(date, JSON.stringify(foods), pid);
     }
     return true;
   });
 
   ipcMain.handle('db:getDayLog', (event, date) => {
-    const stmt = db.prepare('SELECT food_data FROM daily_logs WHERE date = ?');
-    const result = stmt.get(date);
+    const stmt = db.prepare('SELECT food_data FROM daily_logs WHERE date = ? AND person_id = ?');
+    const result = stmt.get(date, activePersonId());
     if (result) {
       try {
         return JSON.parse(result.food_data);
@@ -400,8 +479,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('db:getAllDayLogs', () => {
-    const stmt = db.prepare('SELECT date, food_data FROM daily_logs ORDER BY date DESC');
-    const rows = stmt.all();
+    const stmt = db.prepare('SELECT date, food_data FROM daily_logs WHERE person_id = ? ORDER BY date DESC');
+    const rows = stmt.all(activePersonId());
     const logs = {};
     for (const row of rows) {
       try {
@@ -416,8 +495,8 @@ function registerIpcHandlers() {
   // Vitals handlers
   ipcMain.handle('db:addVital', (event, vital) => {
     const stmt = db.prepare(`
-      INSERT INTO vitals (date, time, weight, systolicBP, diastolicBP, heartRate, spO2, temperature, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO vitals (date, time, weight, systolicBP, diastolicBP, heartRate, spO2, temperature, notes, person_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       vital.date,
@@ -428,50 +507,53 @@ function registerIpcHandlers() {
       vital.heartRate || null,
       vital.spO2 || null,
       vital.temperature || null,
-      vital.notes || null
+      vital.notes || null,
+      activePersonId()
     );
     return result.lastInsertRowid;
   });
 
   ipcMain.handle('db:getVitalsForDate', (event, date) => {
-    const stmt = db.prepare('SELECT * FROM vitals WHERE date = ? ORDER BY time DESC');
-    return stmt.all(date);
+    const stmt = db.prepare('SELECT * FROM vitals WHERE date = ? AND person_id = ? ORDER BY time DESC');
+    return stmt.all(date, activePersonId());
   });
 
   ipcMain.handle('db:getAllVitals', () => {
-    const stmt = db.prepare('SELECT * FROM vitals ORDER BY date DESC, time DESC');
-    return stmt.all();
+    const stmt = db.prepare('SELECT * FROM vitals WHERE person_id = ? ORDER BY date DESC, time DESC');
+    return stmt.all(activePersonId());
   });
 
   ipcMain.handle('db:deleteVital', (event, vitalId) => {
-    const stmt = db.prepare('DELETE FROM vitals WHERE id = ?');
-    stmt.run(vitalId);
+    const stmt = db.prepare('DELETE FROM vitals WHERE id = ? AND person_id = ?');
+    stmt.run(vitalId, activePersonId());
     return true;
   });
 
   ipcMain.handle('db:getVitalsRange', (event, startDate, endDate) => {
-    const stmt = db.prepare('SELECT * FROM vitals WHERE date >= ? AND date <= ? ORDER BY date ASC, time ASC');
-    return stmt.all(startDate, endDate);
+    const stmt = db.prepare('SELECT * FROM vitals WHERE date >= ? AND date <= ? AND person_id = ? ORDER BY date ASC, time ASC');
+    return stmt.all(startDate, endDate, activePersonId());
   });
 
-  // Settings handlers
+  // Settings handlers — operate on the active person's `people` row
   ipcMain.handle('db:getSettings', () => {
-    const stmt = db.prepare('SELECT * FROM user_settings WHERE id = 1');
-    return stmt.get() || {};
+    const row = db.prepare('SELECT * FROM people WHERE id = ?').get(activePersonId());
+    return row || {};
   });
 
   ipcMain.handle('db:saveSettings', (event, settings) => {
+    const pid = activePersonId();
+    const cur = db.prepare('SELECT goal_type FROM people WHERE id = ?').get(pid) || {};
     const stmt = db.prepare(`
-      UPDATE user_settings SET
+      UPDATE people SET
         name = ?,
         birthdate = ?,
         sex = ?,
         height_inches = ?,
         goal_weight = ?,
         activity_level = ?,
-        notes = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = 1
+        goal_type = ?,
+        notes = ?
+      WHERE id = ?
     `);
     stmt.run(
       settings.name || null,
@@ -480,15 +562,16 @@ function registerIpcHandlers() {
       settings.height_inches || null,
       settings.goal_weight || null,
       settings.activity_level || null,
-      settings.notes || null
+      settings.goal_type || cur.goal_type || 'nutrition_optimization',
+      settings.notes || null,
+      pid
     );
     return true;
   });
 
-  // Nutrition config handlers
+  // Nutrition config handlers — per active person
   ipcMain.handle('db:getNutritionConfig', () => {
-    const stmt = db.prepare('SELECT config_data FROM nutrition_config WHERE id = 1');
-    const result = stmt.get();
+    const result = db.prepare('SELECT config_data FROM nutrition_config WHERE person_id = ?').get(activePersonId());
     if (result) {
       try {
         return JSON.parse(result.config_data);
@@ -501,11 +584,31 @@ function registerIpcHandlers() {
 
   ipcMain.handle('db:saveNutritionConfig', (event, config) => {
     const configData = JSON.stringify(config);
-    // Delete existing and insert new (upsert)
-    db.prepare('DELETE FROM nutrition_config WHERE id = 1').run();
-    const stmt = db.prepare('INSERT INTO nutrition_config (id, config_data) VALUES (1, ?)');
-    stmt.run(configData);
+    db.prepare(`
+      INSERT INTO nutrition_config (person_id, config_data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(person_id) DO UPDATE SET config_data = excluded.config_data, updated_at = CURRENT_TIMESTAMP
+    `).run(activePersonId(), configData);
     return true;
+  });
+
+  // People / profile handlers
+  ipcMain.handle('people:list', () => {
+    return db.prepare('SELECT id, name, goal_type FROM people ORDER BY id').all();
+  });
+
+  ipcMain.handle('people:getActive', () => activePersonId());
+
+  ipcMain.handle('people:setActive', (event, id) => {
+    const exists = db.prepare('SELECT 1 FROM people WHERE id = ?').get(id);
+    if (!exists) return false;
+    setMeta('active_person_id', String(id));
+    return true;
+  });
+
+  ipcMain.handle('people:add', (event, person) => {
+    const goal = person.goal_type === 'weight_loss' ? 'weight_loss' : 'nutrition_optimization';
+    const info = db.prepare('INSERT INTO people (name, goal_type) VALUES (?, ?)').run(person.name || 'New person', goal);
+    return info.lastInsertRowid;
   });
 
   // Cloud backup: snapshot DB into ~/app-data and push to GitHub

@@ -1472,6 +1472,8 @@ const HealthTracker = () => {
   const [saveMessage, setSaveMessage] = useState('');
   const [backupWorking, setBackupWorking] = useState(false);
   const [preRestoreAvailable, setPreRestoreAvailable] = useState(false);
+  const [people, setPeople] = useState([]);
+  const [activePerson, setActivePersonId] = useState(1);
   const [addedMessage, setAddedMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [waterOz, setWaterOz] = useState(0);
@@ -1732,6 +1734,31 @@ const HealthTracker = () => {
   useEffect(() => {
     if (canBackup) hasPreRestore().then(setPreRestoreAvailable).catch(() => {});
   }, []);
+
+  // Load profiles (people) and the active one
+  useEffect(() => {
+    (async () => {
+      try {
+        const [list, active] = await Promise.all([listPeople(), getActivePerson()]);
+        setPeople(list || []);
+        setActivePersonId(active || 1);
+      } catch { /* single-person fallback */ }
+    })();
+  }, []);
+
+  const switchPerson = async (id) => {
+    if (id === activePerson) return;
+    await setActivePerson(id);
+    window.location.reload(); // re-load all per-person data for the new profile
+  };
+
+  const handleAddProfile = async () => {
+    const name = window.prompt('Name for the new profile:');
+    if (!name || !name.trim()) return;
+    const weightLoss = window.confirm(`Is "${name.trim()}" focused on weight loss?\n\nOK = Weight loss   ·   Cancel = Nutrition optimization`);
+    const id = await addPerson({ name: name.trim(), goal_type: weightLoss ? 'weight_loss' : 'nutrition_optimization' });
+    if (id) { await setActivePerson(id); window.location.reload(); }
+  };
 
   // Save foods to database when foods change
   useEffect(() => {
@@ -2065,22 +2092,7 @@ const HealthTracker = () => {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-1 shrink-0 items-center">
-            {canBackup && people.length > 0 && (
-              <select
-                value={activePerson}
-                onChange={(e) => { const v = e.target.value; v === '__add__' ? handleAddProfile() : switchPerson(Number(v)); }}
-                className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded text-sm transition-all cursor-pointer focus:outline-none"
-                title="Switch profile"
-              >
-                {people.map(p => (
-                  <option key={p.id} value={p.id} className="text-gray-800">
-                    {p.goal_type === 'weight_loss' ? '⚖️ ' : '🧠 '}{p.name}
-                  </option>
-                ))}
-                <option value="__add__" className="text-gray-800">➕ Add profile…</option>
-              </select>
-            )}
+          <div className="flex gap-1 shrink-0">
             <button
               onClick={() => setFastingOpen(true)}
               className={`px-2 py-1 rounded text-sm transition-all flex items-center gap-1 ${fastingData?.isActive ? 'bg-emerald-400 hover:bg-emerald-500' : 'bg-white/20 hover:bg-white/30'}`}

@@ -584,6 +584,38 @@ export async function saveNutritionConfig(config) {
 
 export const canBackup = isElectron;
 
+// ============================================
+// PEOPLE / PROFILES (desktop multi-person; web is single-person)
+// ============================================
+
+export async function listPeople() {
+  if (isElectron) {
+    return window.electronAPI.listPeople();
+  }
+  return [{ id: 1, name: 'You', goal_type: 'nutrition_optimization' }];
+}
+
+export async function getActivePerson() {
+  if (isElectron) {
+    return window.electronAPI.getActivePerson();
+  }
+  return 1;
+}
+
+export async function setActivePerson(id) {
+  if (isElectron) {
+    return window.electronAPI.setActivePerson(id);
+  }
+  return false;
+}
+
+export async function addPerson(person) {
+  if (isElectron) {
+    return window.electronAPI.addPerson(person);
+  }
+  return null;
+}
+
 export async function backupData() {
   if (isElectron) {
     return window.electronAPI.backup();
