@@ -1,7 +1,7 @@
 [
   {
     "name": "Egg (1 large, whole)",
-    "category": "Poultry",
+    "category": "Protein",
     "servingSize": "1 large (50g)",
     "calories": 71.50,
     "protein": 6.28,
@@ -62,7 +62,7 @@
   },
   {
     "name": "Life Cereal + 2% Milk (white bowl)",
-    "category": "Prepared Food",
+    "category": "Grains",
     "servingSize": "1.5 cups Life cereal + 1 cup 2% milk",
     "calories": 362.00,
     "protein": 14.05,
@@ -123,7 +123,7 @@
   },
   {
     "name": "Simply Orange 100% Orange Juice (6 oz)",
-    "category": "Beverage",
+    "category": "Drinks",
     "servingSize": "6 fl oz (180 mL)",
     "calories": 82.50,
     "protein": 1.50,
@@ -184,7 +184,7 @@
   },
   {
     "name": "Banana (1 medium)",
-    "category": "Fruit",
+    "category": "Fruits",
     "servingSize": "1 medium (118g)",
     "calories": 105.00,
     "protein": 1.29,
@@ -245,7 +245,7 @@
   },
   {
     "name": "OPTAVIA Frothy Cappuccino Drink Mix (1 sachet)",
-    "category": "Beverage",
+    "category": "OPTAVIA",
     "servingSize": "1 sachet (30g)",
     "calories": 100.00,
     "protein": 14.00,
@@ -306,7 +306,7 @@
   },
   {
     "name": "OPTAVIA Campfire S'mores Crisp Bar (1 bar)",
-    "category": "Snack",
+    "category": "OPTAVIA",
     "servingSize": "1 bar (32g)",
     "calories": 110.00,
     "protein": 11.00,
@@ -367,7 +367,7 @@
   },
   {
     "name": "OPTAVIA Roasted Garlic Mashed Potatoes (1 sachet)",
-    "category": "Prepared Food",
+    "category": "OPTAVIA",
     "servingSize": "1 sachet (32g)",
     "calories": 100.00,
     "protein": 11.00,
@@ -428,7 +428,7 @@
   },
   {
     "name": "Food For Life Ezekiel 4:9 Sprouted Grain Bread (1 slice)",
-    "category": "Bread",
+    "category": "Grains",
     "servingSize": "1 slice (34g)",
     "calories": 80.00,
     "protein": 5.00,
@@ -550,7 +550,7 @@
   },
   {
     "name": "Weis Oven Roasted Turkey Breast (2 oz)",
-    "category": "Deli Meat",
+    "category": "Protein",
     "servingSize": "2 oz (56g)",
     "calories": 60.00,
     "protein": 10.00,

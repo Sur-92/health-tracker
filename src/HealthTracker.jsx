@@ -248,19 +248,72 @@ const WeightLossDashboard = ({ data }) => {
   );
 };
 
+// Canonical food taxonomy. Stored categories (incl. legacy DB values and minor
+// paste variants) are normalized to these at display time, so the list always
+// shows a consistent set without needing a DB migration.
+const FOOD_CATEGORIES = ['Protein', 'Dairy', 'Veggies', 'Fruits', 'Grains', 'NutsBeans', 'Fats', 'Sweets', 'Snacks', 'Drinks'];
+const CATEGORY_ALIASES = {
+  // Protein — meat, fish, eggs, poultry
+  poultry: 'Protein', meat: 'Protein', 'deli meat': 'Protein', fish: 'Protein', seafood: 'Protein',
+  egg: 'Protein', eggs: 'Protein', beef: 'Protein', chicken: 'Protein', turkey: 'Protein', pork: 'Protein',
+  // Dairy
+  milk: 'Dairy', cheese: 'Dairy', yogurt: 'Dairy', 'cottage cheese': 'Dairy',
+  // Veggies
+  vegetable: 'Veggies', vegetables: 'Veggies', veggie: 'Veggies', veg: 'Veggies',
+  // Fruits
+  fruit: 'Fruits',
+  // Grains — bread, rice, pasta, oats, potatoes, cereal
+  bread: 'Grains', cereal: 'Grains', rice: 'Grains', pasta: 'Grains', oats: 'Grains',
+  potato: 'Grains', potatoes: 'Grains', grain: 'Grains', 'prepared food': 'Grains',
+  // NutsBeans
+  nut: 'NutsBeans', nuts: 'NutsBeans', seeds: 'NutsBeans', bean: 'NutsBeans', beans: 'NutsBeans',
+  legume: 'NutsBeans', legumes: 'NutsBeans', 'nuts & beans': 'NutsBeans', 'nuts/beans': 'NutsBeans',
+  // Fats
+  fat: 'Fats', oil: 'Fats', oils: 'Fats', butter: 'Fats', mayo: 'Fats', avocado: 'Fats',
+  // Sweets
+  sweet: 'Sweets', dessert: 'Sweets', desserts: 'Sweets', candy: 'Sweets', 'baked goods': 'Sweets',
+  // Snacks
+  snack: 'Snacks', chips: 'Snacks', crackers: 'Snacks',
+  // Drinks
+  beverage: 'Drinks', beverages: 'Drinks', drink: 'Drinks', water: 'Drinks',
+  coffee: 'Drinks', tea: 'Drinks', alcohol: 'Drinks', soda: 'Drinks',
+};
+const normalizeCategory = (c) => {
+  if (!c) return '';
+  const key = String(c).trim().toLowerCase();
+  if (CATEGORY_ALIASES[key]) return CATEGORY_ALIASES[key];
+  return FOOD_CATEGORIES.find((x) => x.toLowerCase() === key) || c;
+};
+
+// OPTAVIA foods get their own derived category (keyed off the name so it works
+// on existing DB rows). They're a weight-loss program, so they only show for
+// the weight-loss lens (Dana), not the nutrition lens (Steve).
+const isOptaviaFood = (f) => /optavia/i.test(f?.name || '') || (f?.category || '').toUpperCase() === 'OPTAVIA';
+const displayCategory = (f) => (isOptaviaFood(f) ? 'OPTAVIA' : normalizeCategory(f?.category));
+
 const QuickAddItem = ({ food, onAdd, onDelete }) => {
   const [qty, setQty] = useState(1);
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="bg-gray-50 rounded text-sm">
-      <div className="flex justify-between items-center p-2 group">
+      <div className="flex justify-between items-center py-1.5 px-2 group">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex-1 text-left truncate hover:text-blue-600 cursor-pointer flex items-center gap-1"
         >
           <span className={`text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          {food.name} <span className="text-gray-400">({food.calories} cal)</span>
+          {(() => {
+            const cat = displayCategory(food);
+            const isOpt = cat.toUpperCase() === 'OPTAVIA';
+            const shownName = isOpt ? food.name.replace(/^OPTAVIA\s+/i, '') : food.name;
+            return (
+              <>
+                {cat && <span className={`font-semibold ${isOpt ? 'text-green-600' : 'text-gray-500'}`}>{cat.toUpperCase()}: </span>}
+                {shownName} <span className="text-gray-400">({food.calories} cal)</span>
+              </>
+            );
+          })()}
         </button>
         <div className="flex items-center gap-1 ml-2">
           <button onClick={() => onDelete(food)} className="text-red-400 hover:text-red-600 w-6 h-6 rounded flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
@@ -276,7 +329,7 @@ const QuickAddItem = ({ food, onAdd, onDelete }) => {
           <div>
             <NutrientSection title="Basic">
               <NutrientRow label="Serving" value={food.servingSize} unit="" />
-              <NutrientRow label="Category" value={food.category} unit="" />
+              <NutrientRow label="Category" value={displayCategory(food)} unit="" />
             </NutrientSection>
 
             <NutrientSection title="Macros">
@@ -2561,8 +2614,11 @@ const HealthTracker = () => {
           {/* Quick Add from Library */}
           <div className="bg-gray-50 rounded-lg p-3">
             <h4 className="font-bold text-gray-700 mb-2 text-sm">⚡ Quick Add ({foodLibrary.length})</h4>
-            <div className="space-y-1 overflow-y-auto" style={{maxHeight: 'calc(100vh - 400px)'}}>
-              {[...foodLibrary].sort((a,b) => a.name.localeCompare(b.name)).map((f, i) => (
+            <div className="space-y-[3px] overflow-y-auto" style={{maxHeight: 'calc(100vh - 400px)'}}>
+              {[...foodLibrary]
+                .filter(f => !isOptaviaFood(f) || activeGoalType === 'weight_loss')
+                .sort((a,b) => displayCategory(a).localeCompare(displayCategory(b)) || a.name.localeCompare(b.name))
+                .map((f, i) => (
                 <QuickAddItem key={f.id || i} food={f} onAdd={(food, qty) => {
                   const multiplied = { ...food };
                   const numericKeys = [
