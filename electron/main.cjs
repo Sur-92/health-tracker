@@ -360,9 +360,14 @@ function migrateSchema() {
       equipment TEXT,
       primaryMuscles TEXT,
       secondaryMuscles TEXT,
+      meta TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // Additive: existing exercises tables (created before `meta`) get the column.
+  if (tableExists('exercises') && !columnExists('exercises', 'meta')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN meta TEXT');
+  }
 
   const migrate = db.transaction(() => {
     // person_id on per-person row tables (existing tables → backfill to person 1)
@@ -507,8 +512,11 @@ function registerIpcHandlers() {
   ipcMain.handle('db:addExercise', (event, ex) => {
     const exists = db.prepare('SELECT COUNT(*) as count FROM exercises WHERE name = ?').get(ex.name);
     if (exists.count > 0) return false;
-    db.prepare('INSERT INTO exercises (name, category, equipment, primaryMuscles, secondaryMuscles) VALUES (?, ?, ?, ?, ?)')
-      .run(ex.name, ex.category || null, ex.equipment || null, JSON.stringify(ex.primaryMuscles || []), JSON.stringify(ex.secondaryMuscles || []));
+    const core = ['name', 'category', 'equipment', 'primaryMuscles', 'secondaryMuscles', 'meta', 'id', 'created_at'];
+    const meta = (ex.meta && typeof ex.meta === 'object') ? { ...ex.meta } : {};
+    Object.keys(ex).forEach((k) => { if (!core.includes(k)) meta[k] = ex[k]; });
+    db.prepare('INSERT INTO exercises (name, category, equipment, primaryMuscles, secondaryMuscles, meta) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(ex.name, ex.category || null, ex.equipment || null, JSON.stringify(ex.primaryMuscles || []), JSON.stringify(ex.secondaryMuscles || []), Object.keys(meta).length ? JSON.stringify(meta) : null);
     return true;
   });
 

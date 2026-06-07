@@ -12,13 +12,37 @@ Source-of-truth for the exercises in the Health Tracker **Fitness** tab. Like th
   "category": "Chest",
   "equipment": "Barbell",
   "primaryMuscles": ["chest", "triceps"],
-  "secondaryMuscles": ["front-deltoids"]
+  "secondaryMuscles": ["front-deltoids"],
+  "targetSets": 3,
+  "targetReps": "5–8",
+  "repGoal": "strength",
+  "restSeconds": 120,
+  "cooldownSeconds": 120,
+  "intensity": "RPE 8",
+  "tempo": "2-1-1",
+  "notes": "Retract scapula; feet planted."
 }
 ```
+
+### Core fields (own DB columns)
 - **`name`** — required, unique.
 - **`category`** — one of the muscle-region buckets: **Chest, Back, Shoulders, Arms, Legs, Core** (Cardio/Other fine too). Groups + sorts the list and shows as a prefix.
 - **`equipment`** — free text (Barbell, Dumbbell, Machine, Cable, Bodyweight…). Optional.
-- **`primaryMuscles`** / **`secondaryMuscles`** — arrays of muscle IDs (below). Primary highlight brighter than secondary on the body map.
+- **`primaryMuscles`** / **`secondaryMuscles`** — arrays of muscle IDs (below). Primary highlights brighter than secondary on the body map.
+
+### Metric fields (stored flexibly in a `meta` JSON column — add new ones any time, no migration)
+All optional; blanks are simply not shown.
+- **`targetSets`** — suggested sets (number).
+- **`targetReps`** — suggested reps; range or note (`"5–8"`, `"30–60s hold"`).
+- **`repGoal`** — what the rep scheme is *for* (`strength` / `hypertrophy` / `endurance`).
+- **`restSeconds`** — rest between sets.
+- **`cooldownSeconds`** — cool-down after the exercise.
+- **`durationMinutes`** — for timed/cardio work (used instead of sets×reps).
+- **`intensity`** — suggested effort (`"RPE 8"`, `"heavy"`, `"moderate"`).
+- **`tempo`** — lifting tempo (`"2-1-1"`).
+- **`notes`** — free-text cues.
+
+Because metrics live in `meta`, you can invent new fields whenever — just include them in the paste and they'll be stored and shown.
 
 ## Valid muscle IDs
 These must match `react-body-highlighter` exactly:

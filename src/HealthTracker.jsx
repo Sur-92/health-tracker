@@ -299,6 +299,78 @@ const ExerciseItem = ({ ex, selected, onSelect, onDelete }) => (
   </div>
 );
 
+const ExerciseMetrics = ({ ex }) => {
+  const prescription = ex.durationMinutes
+    ? `${ex.durationMinutes} min`
+    : (ex.targetSets != null && ex.targetReps != null && ex.targetReps !== '')
+      ? `${ex.targetSets} × ${ex.targetReps} reps`
+      : [ex.targetSets != null ? `${ex.targetSets} sets` : null, (ex.targetReps != null && ex.targetReps !== '') ? `${ex.targetReps} reps` : null].filter(Boolean).join(' · ');
+  const restCool = [ex.restSeconds != null ? `rest ${ex.restSeconds}s` : null, ex.cooldownSeconds != null ? `cooldown ${ex.cooldownSeconds}s` : null].filter(Boolean).join(' · ');
+  const intTempo = [ex.intensity ? `intensity: ${ex.intensity}` : null, ex.tempo ? `tempo: ${ex.tempo}` : null].filter(Boolean).join(' · ');
+  const lines = [];
+  if (prescription) lines.push(prescription + (ex.repGoal ? ` · goal: ${ex.repGoal}` : ''));
+  if (restCool) lines.push(restCool);
+  if (intTempo) lines.push(intTempo);
+  if (lines.length === 0 && !ex.notes) return null;
+  return (
+    <div className="mt-2 text-xs text-gray-600 space-y-0.5">
+      {lines.map((l, i) => <div key={i}>{l}</div>)}
+      {ex.notes && <div className="italic text-gray-500">{ex.notes}</div>}
+    </div>
+  );
+};
+
+const prettyMuscle = (m) => (m || '').split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+
+// Wraps a react-body-highlighter <Model> and adds a hover tooltip. The library
+// renders each muscle as a <polygon> with its muscle bound only in an onClick
+// closure (no id/data attr), so on mount we invoke each polygon's handler once
+// with a capture callback to build an element→muscle map, then read it on hover.
+const BodyModel = ({ data, type }) => {
+  const wrapRef = useRef(null);
+  const muscleMap = useRef(new WeakMap());
+  const captureRef = useRef(null);
+  const [tip, setTip] = useState(null);
+
+  useEffect(() => {
+    if (!wrapRef.current) return;
+    const polys = wrapRef.current.querySelectorAll('polygon');
+    polys.forEach((poly) => {
+      const key = Object.keys(poly).find((k) => k.startsWith('__reactProps$'));
+      const props = key ? poly[key] : null;
+      if (!props || typeof props.onClick !== 'function') return;
+      captureRef.current = (muscle) => muscleMap.current.set(poly, muscle);
+      try { props.onClick(); } catch { /* ignore */ }
+    });
+    captureRef.current = null;
+  }, [type]);
+
+  const handleMove = (e) => {
+    if (e.target && e.target.tagName === 'polygon') {
+      const m = muscleMap.current.get(e.target);
+      if (m) { setTip({ name: prettyMuscle(m), x: e.clientX, y: e.clientY }); return; }
+    }
+    if (tip) setTip(null);
+  };
+
+  return (
+    <div ref={wrapRef} onMouseMove={handleMove} onMouseLeave={() => setTip(null)}>
+      <Model
+        data={data}
+        type={type}
+        highlightedColors={MUSCLE_HIGHLIGHT_COLORS}
+        onClick={(e) => { if (captureRef.current) captureRef.current(e.muscle); }}
+        style={{ width: '220px' }}
+      />
+      {tip && (
+        <div className="fixed z-50 pointer-events-none bg-gray-900 text-white text-[11px] px-2 py-1 rounded shadow-lg" style={{ left: tip.x + 12, top: tip.y + 12 }}>
+          {tip.name}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const FitnessView = ({ exercises, onAddExercise, onDeleteExercise }) => {
   const [selected, setSelected] = useState(null);
   const [input, setInput] = useState('');
@@ -327,15 +399,17 @@ const FitnessView = ({ exercises, onAddExercise, onDeleteExercise }) => {
       {/* Body map */}
       <div className="bg-white rounded-lg border p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
         <div className="flex justify-center gap-4 flex-wrap">
-          <Model data={modelData} type="anterior" highlightedColors={MUSCLE_HIGHLIGHT_COLORS} style={{ width: '220px' }} />
-          <Model data={modelData} type="posterior" highlightedColors={MUSCLE_HIGHLIGHT_COLORS} style={{ width: '220px' }} />
+          <BodyModel data={modelData} type="anterior" />
+          <BodyModel data={modelData} type="posterior" />
         </div>
         <div className="mt-3 text-center min-h-[3rem]">
           {selected ? (
             <>
               <div className="font-bold text-gray-700">{selected.name}</div>
-              <div className="text-xs text-gray-500">Primary: {(selected.primaryMuscles || []).join(', ') || '—'}</div>
+              <div className="text-[10px] text-gray-400">{selected.category}{selected.equipment ? ` · ${selected.equipment}` : ''}</div>
+              <div className="text-xs text-gray-500 mt-1">Primary: {(selected.primaryMuscles || []).join(', ') || '—'}</div>
               {(selected.secondaryMuscles || []).length > 0 && <div className="text-xs text-gray-400">Secondary: {selected.secondaryMuscles.join(', ')}</div>}
+              <ExerciseMetrics ex={selected} />
             </>
           ) : <div className="text-sm text-gray-400">Select an exercise to see the muscles it works</div>}
         </div>

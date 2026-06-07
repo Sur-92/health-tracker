@@ -138,6 +138,7 @@ function ensureTablesExist() {
       equipment TEXT,
       primaryMuscles TEXT,
       secondaryMuscles TEXT,
+      meta TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -346,6 +347,13 @@ function parseMuscles(v) {
   try { return JSON.parse(v); } catch { return []; }
 }
 
+function parseMeta(v) {
+  if (v && typeof v === 'object') return v;
+  if (!v) return {};
+  try { return JSON.parse(v); } catch { return {}; }
+}
+
+const EXERCISE_CORE = ['name', 'category', 'equipment', 'primaryMuscles', 'secondaryMuscles', 'meta', 'id', 'created_at'];
 const MUSCLE_FIELDS = ['primaryMuscles', 'secondaryMuscles'];
 
 export async function getExercises() {
@@ -361,7 +369,12 @@ export async function getExercises() {
       return o;
     });
   }
-  return rows.map((r) => ({ ...r, primaryMuscles: parseMuscles(r.primaryMuscles), secondaryMuscles: parseMuscles(r.secondaryMuscles) }));
+  return rows.map((r) => {
+    const metaObj = parseMeta(r.meta);
+    const { meta, ...rest } = r;
+    // meta fields are flattened to the top level; core columns win on any clash.
+    return { ...metaObj, ...rest, primaryMuscles: parseMuscles(r.primaryMuscles), secondaryMuscles: parseMuscles(r.secondaryMuscles) };
+  });
 }
 
 export async function addExercise(ex) {
@@ -372,9 +385,11 @@ export async function addExercise(ex) {
   await initWebDatabase();
   const existing = db.exec('SELECT COUNT(*) FROM exercises WHERE name = ?', [ex.name]);
   if (existing.length && existing[0].values[0][0] > 0) return false;
+  const meta = (ex.meta && typeof ex.meta === 'object') ? { ...ex.meta } : {};
+  Object.keys(ex).forEach((k) => { if (!EXERCISE_CORE.includes(k)) meta[k] = ex[k]; });
   db.run(
-    'INSERT INTO exercises (name, category, equipment, primaryMuscles, secondaryMuscles) VALUES (?, ?, ?, ?, ?)',
-    [ex.name, ex.category || null, ex.equipment || null, JSON.stringify(ex.primaryMuscles || []), JSON.stringify(ex.secondaryMuscles || [])]
+    'INSERT INTO exercises (name, category, equipment, primaryMuscles, secondaryMuscles, meta) VALUES (?, ?, ?, ?, ?, ?)',
+    [ex.name, ex.category || null, ex.equipment || null, JSON.stringify(ex.primaryMuscles || []), JSON.stringify(ex.secondaryMuscles || []), Object.keys(meta).length ? JSON.stringify(meta) : null]
   );
   await saveToIndexedDB();
   return true;

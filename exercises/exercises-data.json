@@ -4,48 +4,135 @@
     "category": "Chest",
     "equipment": "Barbell",
     "primaryMuscles": ["chest", "triceps"],
-    "secondaryMuscles": ["front-deltoids"]
+    "secondaryMuscles": ["front-deltoids"],
+    "targetSets": 3,
+    "targetReps": "5–8",
+    "repGoal": "strength",
+    "restSeconds": 120,
+    "cooldownSeconds": 120,
+    "intensity": "RPE 8",
+    "tempo": "2-1-1",
+    "notes": "Retract scapula; feet planted."
   },
   {
     "name": "Pull-Up",
     "category": "Back",
     "equipment": "Bodyweight",
     "primaryMuscles": ["upper-back", "biceps"],
-    "secondaryMuscles": ["forearm", "back-deltoids"]
+    "secondaryMuscles": ["forearm", "back-deltoids"],
+    "targetSets": 3,
+    "targetReps": "6–10",
+    "repGoal": "hypertrophy",
+    "restSeconds": 90,
+    "cooldownSeconds": 90,
+    "intensity": "bodyweight",
+    "notes": "Full hang to chin over the bar."
   },
   {
     "name": "Deadlift",
     "category": "Back",
     "equipment": "Barbell",
     "primaryMuscles": ["lower-back", "gluteal", "hamstring"],
-    "secondaryMuscles": ["trapezius", "forearm", "quadriceps"]
+    "secondaryMuscles": ["trapezius", "forearm", "quadriceps"],
+    "targetSets": 3,
+    "targetReps": "3–5",
+    "repGoal": "strength",
+    "restSeconds": 180,
+    "cooldownSeconds": 180,
+    "intensity": "RPE 8",
+    "tempo": "1-1-2",
+    "notes": "Neutral spine; brace hard before the pull."
   },
   {
     "name": "Overhead Press",
     "category": "Shoulders",
     "equipment": "Barbell",
     "primaryMuscles": ["front-deltoids", "triceps"],
-    "secondaryMuscles": ["trapezius"]
+    "secondaryMuscles": ["trapezius"],
+    "targetSets": 3,
+    "targetReps": "6–8",
+    "repGoal": "strength",
+    "restSeconds": 120,
+    "cooldownSeconds": 90,
+    "intensity": "RPE 7",
+    "notes": "Glutes tight; bar travels over mid-foot."
   },
   {
     "name": "Dumbbell Bicep Curl",
     "category": "Arms",
     "equipment": "Dumbbell",
     "primaryMuscles": ["biceps"],
-    "secondaryMuscles": ["forearm"]
+    "secondaryMuscles": ["forearm"],
+    "targetSets": 3,
+    "targetReps": "10–12",
+    "repGoal": "hypertrophy",
+    "restSeconds": 60,
+    "cooldownSeconds": 60,
+    "tempo": "2-1-2",
+    "notes": "No swing; control the negative."
   },
   {
     "name": "Barbell Back Squat",
     "category": "Legs",
     "equipment": "Barbell",
     "primaryMuscles": ["quadriceps", "gluteal"],
-    "secondaryMuscles": ["hamstring", "adductor", "calves"]
+    "secondaryMuscles": ["hamstring", "adductor", "calves"],
+    "targetSets": 4,
+    "targetReps": "5–8",
+    "repGoal": "strength",
+    "restSeconds": 150,
+    "cooldownSeconds": 180,
+    "intensity": "RPE 8",
+    "notes": "Depth to parallel; drive knees out."
   },
   {
     "name": "Plank",
     "category": "Core",
     "equipment": "Bodyweight",
     "primaryMuscles": ["abs"],
-    "secondaryMuscles": ["obliques", "lower-back"]
+    "secondaryMuscles": ["obliques", "lower-back"],
+    "targetSets": 3,
+    "targetReps": "30–60s hold",
+    "repGoal": "endurance",
+    "restSeconds": 60,
+    "cooldownSeconds": 60,
+    "notes": "Straight line head to heels; brace."
+  },
+  {
+    "name": "Push-Up",
+    "category": "Chest",
+    "equipment": "Bodyweight",
+    "primaryMuscles": ["chest", "triceps"],
+    "secondaryMuscles": ["front-deltoids", "abs"],
+    "targetSets": 3,
+    "targetReps": "10–20",
+    "repGoal": "endurance",
+    "restSeconds": 60,
+    "cooldownSeconds": 60,
+    "notes": "Full range; elbows tucked ~45°."
+  },
+  {
+    "name": "Sit-Up",
+    "category": "Core",
+    "equipment": "Bodyweight",
+    "primaryMuscles": ["abs"],
+    "secondaryMuscles": ["obliques", "quadriceps"],
+    "targetSets": 3,
+    "targetReps": "15–25",
+    "repGoal": "endurance",
+    "restSeconds": 60,
+    "cooldownSeconds": 60,
+    "notes": "Controlled; don't yank the neck. Quads tagged as a hip-flexor proxy."
+  },
+  {
+    "name": "Assault Bike",
+    "category": "Cardio",
+    "equipment": "Assault Bike",
+    "primaryMuscles": ["quadriceps", "hamstring", "gluteal"],
+    "secondaryMuscles": ["calves", "chest", "upper-back", "biceps", "triceps", "front-deltoids", "back-deltoids", "abs"],
+    "durationMinutes": 20,
+    "intensity": "moderate / RPE 6–7",
+    "cooldownSeconds": 180,
+    "notes": "Steady pace; full push-pull through the handles."
   }
 ]
