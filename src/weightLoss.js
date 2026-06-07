@@ -121,6 +121,19 @@ export function computeWeightLoss({ weighIns, intakeByDate, settings, age, today
   }
   const proteinTarget = goal ? Math.round(goal * 0.8) : null;
 
+  // Suggested daily intake to hit a safe target rate (~1%/wk, capped 2 lb/wk),
+  // floored at 1200 kcal. At/under goal → maintain at TDEE.
+  let targetRatePerWeek = null, suggestedTarget = null;
+  if (trendWeight != null && tdee != null) {
+    if (toGoal != null && toGoal > 0) {
+      targetRatePerWeek = Math.min(Math.round(trendWeight * 0.01 * 10) / 10, 2);
+      suggestedTarget = Math.max(Math.round(tdee - (targetRatePerWeek * CAL_PER_LB) / 7), 1200);
+    } else {
+      targetRatePerWeek = 0;
+      suggestedTarget = tdee;
+    }
+  }
+
   let dataState = 'ok';
   if (n === 0) dataState = 'no_weight';
   else if (n < 2) dataState = 'need_more_weight';
@@ -129,6 +142,7 @@ export function computeWeightLoss({ weighIns, intakeByDate, settings, age, today
   return {
     series, weighInDays: n, latestWeight, trendWeight, goal, ratePerWeek,
     tdee, tdeeSource, tdeeWindow: measured ? measured.days : null, meanIntake: measured ? measured.meanIntake : null,
-    balance, toGoal, etaWeeks, proteinTarget, todayIntake, todayProtein, dataState,
+    balance, toGoal, etaWeeks, proteinTarget, todayIntake, todayProtein,
+    targetRatePerWeek, suggestedTarget, dataState,
   };
 }

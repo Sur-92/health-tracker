@@ -153,6 +153,25 @@ const ageFromBirthdate = (bd) => {
   return a;
 };
 
+// Sparkline of scale weight (dots) vs. EMA trend (line), with goal dashed line.
+const TrendSparkline = ({ series, goal }) => {
+  if (!series || series.length < 2) return null;
+  const W = 280, H = 56, pad = 5;
+  const ys = series.flatMap(s => [s.weight, s.trend]).concat(goal != null ? [goal] : []);
+  const minY = Math.min(...ys), maxY = Math.max(...ys), range = (maxY - minY) || 1;
+  const x = (i) => pad + (i / (series.length - 1)) * (W - 2 * pad);
+  const y = (v) => pad + (1 - (v - minY) / range) * (H - 2 * pad);
+  const trendPath = series.map((s, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(s.trend).toFixed(1)}`).join(' ');
+  const goalIn = goal != null && goal >= minY && goal <= maxY;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} preserveAspectRatio="none">
+      {goalIn && <line x1={pad} x2={W - pad} y1={y(goal)} y2={y(goal)} stroke="#10b981" strokeDasharray="3 3" strokeWidth="1" />}
+      {series.map((s, i) => <circle key={i} cx={x(i)} cy={y(s.weight)} r="1.5" fill="#f59e0b" opacity="0.55" />)}
+      <path d={trendPath} fill="none" stroke="#ea580c" strokeWidth="2" />
+    </svg>
+  );
+};
+
 // Weight-loss lens: trend weight, adaptive TDEE, energy balance, time-to-goal.
 const WeightLossDashboard = ({ data }) => {
   if (!data) return null;
@@ -180,7 +199,22 @@ const WeightLossDashboard = ({ data }) => {
             {d.toGoal != null && <div className="text-xs text-gray-500">{d.toGoal > 0 ? `${d.toGoal} lb to goal` : 'at/under goal 🎉'}</div>}
           </div>
         </div>
+        {d.series && d.series.length >= 2 && <div className="mt-2"><TrendSparkline series={d.series} goal={d.goal} /></div>}
       </div>
+
+      {d.suggestedTarget != null && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex justify-between items-center">
+          <div>
+            <div className="text-xs font-semibold text-blue-700">🎯 Suggested daily target</div>
+            <div className="text-[10px] text-gray-500">{d.targetRatePerWeek > 0 ? `to lose ~${d.targetRatePerWeek} lb/wk` : 'maintain — at/under goal'}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-blue-700">{d.suggestedTarget}<span className="text-xs font-medium text-gray-500"> kcal</span></div>
+            {d.todayIntake != null && <div className="text-[10px] text-gray-400">ate {Math.round(d.todayIntake)} today</div>}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white border rounded-lg p-3">
           <div className="text-xs font-semibold text-gray-500">TDEE {d.tdeeSource && <span className="text-[10px] font-normal text-gray-400">({d.tdeeSource}{d.tdeeWindow ? `, ${d.tdeeWindow}d` : ''})</span>}</div>
