@@ -40,7 +40,10 @@ All optional; blanks are simply not shown.
 - **`durationMinutes`** — for timed/cardio work (used instead of sets×reps).
 - **`intensity`** — suggested effort (`"RPE 8"`, `"heavy"`, `"moderate"`).
 - **`tempo`** — lifting tempo (`"2-1-1"`).
+- **`intensityFactor`** — scales how much a logged session contributes to the muscle heatmap (default `1`). Use `<1` for light activities so they don't wash out the recovery view — e.g. carted golf at `0.3`.
 - **`notes`** — free-text cues.
+
+`category` is free-form, so new buckets like **Activity** (golf, hiking, yard work) or **Cardio** just appear as new groups automatically — no code change.
 
 Because metrics live in `meta`, you can invent new fields whenever — just include them in the paste and they'll be stored and shown.
 
