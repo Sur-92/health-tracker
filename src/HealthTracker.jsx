@@ -3,6 +3,7 @@ import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs,
 listPeople, getActivePerson, setActivePerson, addPerson } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
+import { computeWeightLoss } from './weightLoss';
 
 const NutrientRow = ({ label, value, unit }) => {
   if (!value && value !== 0) return null;
@@ -139,6 +140,76 @@ const AddProfileModal = ({ isOpen, onClose, onCreate }) => {
           <button onClick={submit} disabled={!name.trim()} className="px-3 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">Create</button>
         </div>
       </div>
+    </div>
+  );
+};
+
+const ageFromBirthdate = (bd) => {
+  if (!bd) return null;
+  const t = new Date(), b = new Date(bd);
+  let a = t.getFullYear() - b.getFullYear();
+  const m = t.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) a--;
+  return a;
+};
+
+// Weight-loss lens: trend weight, adaptive TDEE, energy balance, time-to-goal.
+const WeightLossDashboard = ({ data }) => {
+  if (!data) return null;
+  const d = data;
+  const fmt = (n, s = '') => (n == null ? '—' : `${n}${s}`);
+  if (d.dataState === 'no_weight') {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        ⚖️ Log your weight each morning (tap ❤️ Vitals) to start your trend. TDEE and rate appear after ~1–2 weeks.
+      </div>
+    );
+  }
+  const losing = d.ratePerWeek != null && d.ratePerWeek < 0;
+  return (
+    <div className="space-y-3">
+      <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-4">
+        <div className="flex justify-between items-end">
+          <div>
+            <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Trend weight</div>
+            <div className="text-3xl font-bold text-gray-800">{fmt(d.trendWeight)} <span className="text-base font-medium text-gray-500">lb</span></div>
+            <div className="text-xs text-gray-500">latest {fmt(d.latestWeight)} · goal {fmt(d.goal)}</div>
+          </div>
+          <div className="text-right">
+            <div className={`text-xl font-bold ${losing ? 'text-green-600' : 'text-orange-600'}`}>{d.ratePerWeek > 0 ? '+' : ''}{fmt(d.ratePerWeek)}<span className="text-xs"> lb/wk</span></div>
+            {d.toGoal != null && <div className="text-xs text-gray-500">{d.toGoal > 0 ? `${d.toGoal} lb to goal` : 'at/under goal 🎉'}</div>}
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white border rounded-lg p-3">
+          <div className="text-xs font-semibold text-gray-500">TDEE {d.tdeeSource && <span className="text-[10px] font-normal text-gray-400">({d.tdeeSource}{d.tdeeWindow ? `, ${d.tdeeWindow}d` : ''})</span>}</div>
+          <div className="text-2xl font-bold text-gray-800">{fmt(d.tdee)}<span className="text-xs font-medium text-gray-500"> kcal</span></div>
+          {d.dataState === 'learning_tdee' && <div className="text-[10px] text-gray-400">estimate — learning your real TDEE…</div>}
+        </div>
+        <div className="bg-white border rounded-lg p-3">
+          <div className="text-xs font-semibold text-gray-500">Today vs TDEE</div>
+          {d.balance == null
+            ? <div className="text-sm text-gray-400 mt-1">log food to see balance</div>
+            : <div className={`text-2xl font-bold ${d.balance < 0 ? 'text-green-600' : 'text-orange-600'}`}>{d.balance > 0 ? '+' : ''}{d.balance}<span className="text-xs font-medium text-gray-500"> kcal</span></div>}
+          <div className="text-[10px] text-gray-400">{d.balance == null ? '' : (d.balance < 0 ? 'deficit' : 'surplus')}{d.todayIntake != null ? ` · ate ${Math.round(d.todayIntake)}` : ''}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white border rounded-lg p-3">
+          <div className="text-xs font-semibold text-gray-500">Est. time to goal</div>
+          <div className="text-xl font-bold text-gray-800">{d.etaWeeks != null ? `~${d.etaWeeks} wk` : '—'}</div>
+          <div className="text-[10px] text-gray-400">at current trend</div>
+        </div>
+        <div className="bg-white border rounded-lg p-3">
+          <div className="text-xs font-semibold text-gray-500">Protein today</div>
+          <div className="text-xl font-bold text-gray-800">{d.todayProtein != null ? Math.round(d.todayProtein) : '—'}<span className="text-xs text-gray-500"> / {fmt(d.proteinTarget)} g</span></div>
+          <div className="text-[10px] text-gray-400">floor ~0.8 g/lb goal weight</div>
+        </div>
+      </div>
+      {d.dataState === 'need_more_weight' && (
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">Keep logging weight daily — the trend and TDEE sharpen with ~1–2 weeks of data.</div>
+      )}
     </div>
   );
 };
@@ -1825,6 +1896,19 @@ const HealthTracker = () => {
   const brainScore = computeBrainScore(totals);
   const heartScore = computeHeartScore(totals);
 
+  // Which lens to show, and the weight-loss metrics for the active profile
+  const activeGoalType = (people.find(p => p.id === activePerson) || {}).goal_type || 'nutrition_optimization';
+  const weightLoss = activeGoalType === 'weight_loss'
+    ? computeWeightLoss({
+        weighIns: (allVitals || []).filter(v => v.weight != null).map(v => ({ date: v.date, weight: v.weight })),
+        intakeByDate: Object.fromEntries(Object.entries(allDaysData || {}).map(([dt, arr]) => [dt, (arr || []).reduce((s, f) => s + (f.calories || 0), 0)])),
+        settings: userSettings,
+        age: ageFromBirthdate(userSettings && userSettings.birthdate),
+        todayIntake: totals.calories,
+        todayProtein: totals.protein,
+      })
+    : null;
+
   const handleAddFood = async () => {
     setInputError('');
     try {
@@ -2197,7 +2281,8 @@ const HealthTracker = () => {
         {/* LEFT PANEL: Food */}
         <div className="bg-white rounded-lg border p-4 space-y-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 140px)'}}>
           <h2 className="font-bold text-lg text-gray-700 border-b pb-2">🍽️ Food</h2>
-          {foods.length > 0 && (
+          {activeGoalType === 'weight_loss' && <WeightLossDashboard data={weightLoss} />}
+          {foods.length > 0 && activeGoalType !== 'weight_loss' && (
             <>
               <div className="grid grid-cols-2 gap-2">
                 <ScoreCard icon="🧠" name="Brain" data={brainScore} />
