@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteExercise: (id) => ipcRenderer.invoke('db:deleteExercise', id),
   updateExercise: (id, updates) => ipcRenderer.invoke('db:updateExercise', id, updates),
 
+  // Workout logs
+  saveWorkout: (date, entries) => ipcRenderer.invoke('db:saveWorkout', date, entries),
+  getWorkout: (date) => ipcRenderer.invoke('db:getWorkout', date),
+  getWorkoutRange: (startDate, endDate) => ipcRenderer.invoke('db:getWorkoutRange', startDate, endDate),
+
   // Daily logs
   saveDayLog: (date, foods) => ipcRenderer.invoke('db:saveDayLog', date, foods),
   getDayLog: (date) => ipcRenderer.invoke('db:getDayLog', date),

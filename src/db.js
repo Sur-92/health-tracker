@@ -144,6 +144,15 @@ function ensureTablesExist() {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS workout_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      log_data TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS user_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       name TEXT,
@@ -420,6 +429,48 @@ export async function updateExercise(id, updates) {
   db.run(`UPDATE exercises SET ${setClause} WHERE id = ?`, [...values, id]);
   await saveToIndexedDB();
   return true;
+}
+
+// ============================================
+// WORKOUT LOGS (per-person on desktop; per-date entries as JSON)
+// ============================================
+
+export async function saveWorkout(date, entries) {
+  if (isElectron) {
+    return window.electronAPI.saveWorkout(date, entries);
+  }
+
+  await initWebDatabase();
+  db.run('DELETE FROM workout_logs WHERE date = ?', [date]);
+  if (entries && entries.length > 0) {
+    db.run('INSERT INTO workout_logs (date, log_data) VALUES (?, ?)', [date, JSON.stringify(entries)]);
+  }
+  await saveToIndexedDB();
+  return true;
+}
+
+export async function getWorkout(date) {
+  if (isElectron) {
+    return window.electronAPI.getWorkout(date);
+  }
+
+  await initWebDatabase();
+  const results = db.exec('SELECT log_data FROM workout_logs WHERE date = ?', [date]);
+  if (results.length === 0 || results[0].values.length === 0) return [];
+  try { return JSON.parse(results[0].values[0][0]); } catch { return []; }
+}
+
+export async function getWorkoutRange(startDate, endDate) {
+  if (isElectron) {
+    return window.electronAPI.getWorkoutRange(startDate, endDate);
+  }
+
+  await initWebDatabase();
+  const results = db.exec('SELECT log_data FROM workout_logs WHERE date >= ? AND date <= ?', [startDate, endDate]);
+  if (results.length === 0) return [];
+  const all = [];
+  results[0].values.forEach((row) => { try { all.push(...JSON.parse(row[0])); } catch { /* skip */ } });
+  return all;
 }
 
 export async function saveDayLog(date, foods) {

@@ -369,6 +369,18 @@ function migrateSchema() {
     db.exec('ALTER TABLE exercises ADD COLUMN meta TEXT');
   }
 
+  // Per-person workout logs (one row per person/date; entries as JSON).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workout_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      person_id INTEGER DEFAULT 1,
+      log_data TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workout_logs_person_date ON workout_logs(person_id, date)');
+
   const migrate = db.transaction(() => {
     // person_id on per-person row tables (existing tables → backfill to person 1)
     for (const t of ['vitals', 'daily_logs']) {
@@ -533,6 +545,29 @@ function registerIpcHandlers() {
     const values = keys.map((k) => (k === 'primaryMuscles' || k === 'secondaryMuscles') ? JSON.stringify(updates[k] || []) : updates[k]);
     db.prepare(`UPDATE exercises SET ${setClause} WHERE id = ?`).run(...values, id);
     return true;
+  });
+
+  // Workout logs — per-person, per-date (mirrors daily_logs)
+  ipcMain.handle('db:saveWorkout', (event, date, entries) => {
+    const pid = activePersonId();
+    db.prepare('DELETE FROM workout_logs WHERE date = ? AND person_id = ?').run(date, pid);
+    if (entries && entries.length > 0) {
+      db.prepare('INSERT INTO workout_logs (date, log_data, person_id) VALUES (?, ?, ?)').run(date, JSON.stringify(entries), pid);
+    }
+    return true;
+  });
+
+  ipcMain.handle('db:getWorkout', (event, date) => {
+    const row = db.prepare('SELECT log_data FROM workout_logs WHERE date = ? AND person_id = ?').get(date, activePersonId());
+    if (!row) return [];
+    try { return JSON.parse(row.log_data); } catch { return []; }
+  });
+
+  ipcMain.handle('db:getWorkoutRange', (event, startDate, endDate) => {
+    const rows = db.prepare('SELECT log_data FROM workout_logs WHERE date >= ? AND date <= ? AND person_id = ?').all(startDate, endDate, activePersonId());
+    const all = [];
+    rows.forEach((r) => { try { all.push(...JSON.parse(r.log_data)); } catch { /* skip */ } });
+    return all;
   });
 
   ipcMain.handle('db:saveDayLog', (event, date, foods) => {

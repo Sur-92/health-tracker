@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Children } from 'react';
 import Model from 'react-body-highlighter';
-import { getExercises, addExercise, deleteExercise, getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
+import { getExercises, addExercise, deleteExercise, getWorkout, saveWorkout, getWorkoutRange, getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
 listPeople, getActivePerson, setActivePerson, addPerson, getWater as getWaterDb, saveWater as saveWaterDb } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
@@ -286,7 +286,7 @@ const displayCategory = (f) => (isOptaviaFood(f) ? 'OPTAVIA' : normalizeCategory
 const MUSCLE_HIGHLIGHT_COLORS = ['#bbf7d0', '#22c55e', '#15803d'];
 const VALID_MUSCLES = 'chest, biceps, triceps, forearm, front-deltoids, back-deltoids, abs, obliques, trapezius, upper-back, lower-back, quadriceps, hamstring, gluteal, adductor, abductors, calves, neck, head';
 
-const ExerciseItem = ({ ex, selected, onSelect, onDelete }) => (
+const ExerciseItem = ({ ex, selected, onSelect, onDelete, onLog }) => (
   <div
     onClick={() => onSelect(ex)}
     className={`px-2 py-[3px] rounded cursor-pointer group flex justify-between items-center ${selected ? 'bg-green-100 ring-1 ring-green-400' : 'bg-gray-50 hover:bg-gray-100'}`}
@@ -295,7 +295,10 @@ const ExerciseItem = ({ ex, selected, onSelect, onDelete }) => (
       <div className="text-sm truncate">{ex.category && <span className="font-semibold text-gray-500">{ex.category.toUpperCase()}: </span>}{ex.name}</div>
       <div className="text-[10px] text-gray-400 truncate">{(ex.primaryMuscles || []).join(', ') || 'no muscles tagged'}{ex.equipment ? ` · ${ex.equipment}` : ''}</div>
     </div>
-    <button onClick={(e) => { e.stopPropagation(); onDelete(ex); }} className="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100 shrink-0 ml-2">✕</button>
+    <div className="flex items-center gap-1 shrink-0 ml-2">
+      <button onClick={(e) => { e.stopPropagation(); onLog(ex); }} className="bg-green-500 text-white px-2 py-0.5 rounded text-xs">Log</button>
+      <button onClick={(e) => { e.stopPropagation(); onDelete(ex); }} className="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100">✕</button>
+    </div>
   </div>
 );
 
@@ -326,7 +329,7 @@ const prettyMuscle = (m) => (m || '').split('-').map((s) => s.charAt(0).toUpperC
 // renders each muscle as a <polygon> with its muscle bound only in an onClick
 // closure (no id/data attr), so on mount we invoke each polygon's handler once
 // with a capture callback to build an element→muscle map, then read it on hover.
-const BodyModel = ({ data, type }) => {
+const BodyModel = ({ data, type, colors = MUSCLE_HIGHLIGHT_COLORS }) => {
   const wrapRef = useRef(null);
   const muscleMap = useRef(new WeakMap());
   const captureRef = useRef(null);
@@ -358,7 +361,7 @@ const BodyModel = ({ data, type }) => {
       <Model
         data={data}
         type={type}
-        highlightedColors={MUSCLE_HIGHLIGHT_COLORS}
+        highlightedColors={colors}
         onClick={(e) => { if (captureRef.current) captureRef.current(e.muscle); }}
         style={{ width: '220px' }}
       />
@@ -371,15 +374,60 @@ const BodyModel = ({ data, type }) => {
   );
 };
 
-const FitnessView = ({ exercises, onAddExercise, onDeleteExercise }) => {
+// Heatmap: accumulate muscle frequency across logged entries (primary 2, secondary 1).
+const HEATMAP_COLORS = ['#dcfce7', '#bbf7d0', '#86efac', '#4ade80', '#22c55e', '#16a34a', '#15803d'];
+const buildHeatmap = (entries) => {
+  const freq = {};
+  (entries || []).forEach((e) => {
+    const w = e.intensityFactor != null ? e.intensityFactor : 1; // light activities (e.g. golf) scale down
+    (e.primaryMuscles || []).forEach((m) => { freq[m] = (freq[m] || 0) + 2 * w; });
+    (e.secondaryMuscles || []).forEach((m) => { freq[m] = (freq[m] || 0) + 1 * w; });
+  });
+  // touched muscles show at least level 1; cap at the gradient length.
+  return Object.entries(freq).map(([muscle, f]) => ({ name: muscle, muscles: [muscle], frequency: Math.min(Math.max(1, Math.round(f)), HEATMAP_COLORS.length) }));
+};
+
+const WorkoutEntry = ({ entry, onUpdate, onRemove }) => {
+  const isCardio = entry.durationMinutes != null && entry.sets == null;
+  const num = (v) => (v === '' ? null : Number(v));
+  return (
+    <div className="bg-gray-50 rounded px-2 py-1 group">
+      <div className="flex justify-between items-center">
+        <div className="text-sm truncate">{entry.category && <span className="font-semibold text-gray-500">{entry.category.toUpperCase()}: </span>}{entry.name}</div>
+        <button onClick={() => onRemove(entry.id)} className="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100 shrink-0 ml-2">✕</button>
+      </div>
+      <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-600">
+        {isCardio ? (
+          <>
+            <input type="number" value={entry.durationMinutes ?? ''} onFocus={(e) => e.target.select()} onChange={(e) => onUpdate(entry.id, { durationMinutes: num(e.target.value) })} className="w-12 border rounded px-1 py-0.5 text-center" /><span>min</span>
+          </>
+        ) : (
+          <>
+            <input type="number" value={entry.sets ?? ''} onFocus={(e) => e.target.select()} onChange={(e) => onUpdate(entry.id, { sets: num(e.target.value) })} className="w-9 border rounded px-1 py-0.5 text-center" /><span>×</span>
+            <input type="text" value={entry.reps ?? ''} onChange={(e) => onUpdate(entry.id, { reps: e.target.value })} className="w-16 border rounded px-1 py-0.5 text-center" /><span>reps</span>
+            <span className="mx-1">@</span>
+            <input type="number" value={entry.weight ?? ''} onFocus={(e) => e.target.select()} onChange={(e) => onUpdate(entry.id, { weight: num(e.target.value) })} className="w-12 border rounded px-1 py-0.5 text-center" placeholder="–" /><span>lb</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const FitnessView = ({ exercises, onAddExercise, onDeleteExercise, dateLabel, workout, workoutWindow, onLogExercise, onUpdateEntry, onRemoveEntry }) => {
   const [selected, setSelected] = useState(null);
   const [input, setInput] = useState('');
   const [err, setErr] = useState('');
+  const [bodyMode, setBodyMode] = useState('7day');
 
-  const modelData = selected ? [
-    { name: `${selected.name} (secondary)`, muscles: selected.secondaryMuscles || [], frequency: 1 },
-    { name: selected.name, muscles: selected.primaryMuscles || [], frequency: 2 },
-  ] : [];
+  const heatmapEntries = bodyMode === 'today' ? workout : workoutWindow;
+  const modelData = bodyMode === 'selected'
+    ? (selected ? [
+        { name: `${selected.name} (secondary)`, muscles: selected.secondaryMuscles || [], frequency: 1 },
+        { name: selected.name, muscles: selected.primaryMuscles || [], frequency: 2 },
+      ] : [])
+    : buildHeatmap(heatmapEntries);
+  const modelColors = bodyMode === 'selected' ? MUSCLE_HIGHLIGHT_COLORS : HEATMAP_COLORS;
 
   const visible = [...exercises].sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
 
@@ -394,34 +442,60 @@ const FitnessView = ({ exercises, onAddExercise, onDeleteExercise }) => {
     } catch { setErr('Invalid JSON'); }
   };
 
+  const pickExercise = (ex) => { setSelected(ex); setBodyMode('selected'); };
+
   return (
-    <div className="grid grid-cols-[1.3fr_1fr] gap-4">
-      {/* Body map */}
-      <div className="bg-white rounded-lg border p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
-        <div className="flex justify-center gap-4 flex-wrap">
-          <BodyModel data={modelData} type="anterior" />
-          <BodyModel data={modelData} type="posterior" />
+    <div className="grid grid-cols-[1.1fr_0.9fr_1fr] gap-4">
+      {/* LEFT: body map */}
+      <div className="bg-white rounded-lg border p-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <div className="flex gap-1 justify-center mb-2">
+          {[['selected', 'Selected'], ['today', 'Today'], ['7day', '7-day']].map(([k, l]) => (
+            <button key={k} onClick={() => setBodyMode(k)} className={`px-2 py-0.5 rounded text-xs font-medium ${bodyMode === k ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+          ))}
+        </div>
+        <div className="flex justify-center gap-3 flex-wrap">
+          <BodyModel data={modelData} type="anterior" colors={modelColors} />
+          <BodyModel data={modelData} type="posterior" colors={modelColors} />
         </div>
         <div className="mt-3 text-center min-h-[3rem]">
-          {selected ? (
-            <>
-              <div className="font-bold text-gray-700">{selected.name}</div>
-              <div className="text-[10px] text-gray-400">{selected.category}{selected.equipment ? ` · ${selected.equipment}` : ''}</div>
-              <div className="text-xs text-gray-500 mt-1">Primary: {(selected.primaryMuscles || []).join(', ') || '—'}</div>
-              {(selected.secondaryMuscles || []).length > 0 && <div className="text-xs text-gray-400">Secondary: {selected.secondaryMuscles.join(', ')}</div>}
-              <ExerciseMetrics ex={selected} />
-            </>
-          ) : <div className="text-sm text-gray-400">Select an exercise to see the muscles it works</div>}
+          {bodyMode === 'selected' ? (
+            selected ? (
+              <>
+                <div className="font-bold text-gray-700">{selected.name}</div>
+                <div className="text-[10px] text-gray-400">{selected.category}{selected.equipment ? ` · ${selected.equipment}` : ''}</div>
+                <div className="text-xs text-gray-500 mt-1">Primary: {(selected.primaryMuscles || []).join(', ') || '—'}</div>
+                {(selected.secondaryMuscles || []).length > 0 && <div className="text-xs text-gray-400">Secondary: {selected.secondaryMuscles.join(', ')}</div>}
+                <ExerciseMetrics ex={selected} />
+              </>
+            ) : <div className="text-sm text-gray-400">Click an exercise to preview its muscles</div>
+          ) : (
+            <div className="text-xs text-gray-500">
+              {bodyMode === 'today' ? 'Muscles worked today' : 'Muscles worked — last 7 days'}
+              <div className="text-[10px] text-gray-400">{(heatmapEntries || []).length} exercise{(heatmapEntries || []).length === 1 ? '' : 's'} logged · darker = more volume</div>
+            </div>
+          )}
         </div>
-        <div className="mt-2 flex justify-center gap-3 text-[10px] text-gray-500">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: MUSCLE_HIGHLIGHT_COLORS[1] }} />primary</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: MUSCLE_HIGHLIGHT_COLORS[0] }} />secondary</span>
+        {bodyMode !== 'selected' && (
+          <div className="mt-2 flex items-center justify-center gap-1 text-[9px] text-gray-400">
+            <span>less</span>
+            {HEATMAP_COLORS.map((c, i) => <span key={i} className="w-3 h-3 rounded-sm inline-block" style={{ background: c }} />)}
+            <span>more</span>
+          </div>
+        )}
+      </div>
+
+      {/* MIDDLE: workout for the selected date */}
+      <div className="bg-white rounded-lg border p-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <h4 className="font-bold text-gray-700 mb-2 text-sm">🏋️ Workout · {dateLabel}</h4>
+        <div className="space-y-1">
+          {(workout || []).length === 0 && <div className="text-xs text-gray-400">No exercises logged. Tap “Log” on an exercise to add it to this day.</div>}
+          {(workout || []).map((entry) => <WorkoutEntry key={entry.id} entry={entry} onUpdate={onUpdateEntry} onRemove={onRemoveEntry} />)}
         </div>
       </div>
 
-      {/* Exercise library */}
-      <div className="bg-white rounded-lg border p-4 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
-        <div className="bg-gray-50 rounded-lg p-3">
+      {/* RIGHT: exercise library */}
+      <div className="bg-white rounded-lg border p-3 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <div className="bg-gray-50 rounded-lg p-2">
           <div className="flex gap-2">
             <textarea value={input} onChange={e => setInput(e.target.value)} placeholder='Paste exercise JSON, e.g. {"name":"Bench Press","category":"Chest","equipment":"Barbell","primaryMuscles":["chest","triceps"],"secondaryMuscles":["front-deltoids"]}' className="flex-1 border rounded p-2 text-xs font-mono h-16" />
             <button onClick={handleAdd} className="bg-blue-600 text-white px-4 rounded text-sm shrink-0">Add</button>
@@ -432,7 +506,7 @@ const FitnessView = ({ exercises, onAddExercise, onDeleteExercise }) => {
           <h4 className="font-bold text-gray-700 mb-2 text-sm">🏋️ Exercises ({visible.length})</h4>
           <div className="space-y-[2px]">
             {visible.map((ex, i) => (
-              <ExerciseItem key={ex.id || i} ex={ex} selected={!!selected && selected.id === ex.id} onSelect={setSelected} onDelete={onDeleteExercise} />
+              <ExerciseItem key={ex.id || i} ex={ex} selected={!!selected && selected.id === ex.id} onSelect={pickExercise} onDelete={onDeleteExercise} onLog={onLogExercise} />
             ))}
             {visible.length === 0 && (
               <div className="text-xs text-gray-400 p-2 leading-relaxed">No exercises yet — paste one above.<br /><span className="text-[10px]">Valid muscle IDs: {VALID_MUSCLES}</span></div>
@@ -1859,6 +1933,8 @@ const HealthTracker = () => {
   const [foodInput, setFoodInput] = useState('');
   const [activeTab, setActiveTab] = useState('food');
   const [exercises, setExercises] = useState([]);
+  const [workout, setWorkout] = useState([]);
+  const [workoutWindow, setWorkoutWindow] = useState([]);
   const [inputError, setInputError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveMessage, setSaveMessage] = useState('');
@@ -2057,6 +2133,7 @@ const HealthTracker = () => {
   useEffect(() => {
     loadWater(selectedDate).then(setWaterOz);
     loadVitalsForDate(selectedDate);
+    refreshWorkout(selectedDate);
   }, [selectedDate]);
 
   // Load vitals for a specific date
@@ -2089,6 +2166,45 @@ const HealthTracker = () => {
     const now = new Date();
     return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   };
+
+  // --- Workout logging (Fitness tab) ---
+  const workoutWindowStart = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() - 6); // 7-day window incl. the selected date
+    return d.toLocaleDateString('en-CA');
+  };
+  const refreshWorkout = async (date) => {
+    const [entries, windowEntries] = await Promise.all([
+      getWorkout(date),
+      getWorkoutRange(workoutWindowStart(date), date),
+    ]);
+    setWorkout(entries);
+    setWorkoutWindow(windowEntries);
+  };
+  const persistWorkout = async (next) => {
+    setWorkout(next);
+    await saveWorkout(selectedDate, next);
+    setWorkoutWindow(await getWorkoutRange(workoutWindowStart(selectedDate), selectedDate));
+  };
+  const logExercise = (ex) => {
+    const entry = {
+      id: Date.now() + Math.random(),
+      time: getCurrentTimeString(),
+      name: ex.name,
+      category: ex.category || null,
+      equipment: ex.equipment || null,
+      primaryMuscles: ex.primaryMuscles || [],
+      secondaryMuscles: ex.secondaryMuscles || [],
+      sets: ex.targetSets != null ? ex.targetSets : null,
+      reps: ex.targetReps != null ? ex.targetReps : null,
+      weight: null,
+      durationMinutes: ex.durationMinutes != null ? ex.durationMinutes : null,
+      intensityFactor: ex.intensityFactor != null ? ex.intensityFactor : null,
+    };
+    persistWorkout([...workout, entry]);
+  };
+  const updateWorkoutEntry = (id, patch) => persistWorkout(workout.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const removeWorkoutEntry = (id) => persistWorkout(workout.filter((e) => e.id !== id));
 
   const formatTime = (timeStr) => {
     if (!timeStr) return '';
@@ -2882,6 +2998,12 @@ const HealthTracker = () => {
               setExercises(prev => prev.filter(e => e.id !== ex.id));
             }
           }}
+          dateLabel={formatDateDisplay(selectedDate)}
+          workout={workout}
+          workoutWindow={workoutWindow}
+          onLogExercise={logExercise}
+          onUpdateEntry={updateWorkoutEntry}
+          onRemoveEntry={removeWorkoutEntry}
         />
       )}
 
