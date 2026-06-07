@@ -394,6 +394,16 @@ function createWindow() {
     }
   });
 
+  // In development, forward renderer console + crashes to main stdout
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.on('console-message', (e, level, message, line, sourceId) => {
+      console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`);
+    });
+    mainWindow.webContents.on('render-process-gone', (e, details) => {
+      console.log('[renderer GONE]', JSON.stringify(details));
+    });
+  }
+
   // In development, load from Vite dev server
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');

@@ -104,6 +104,45 @@ const ScoreCard = ({ icon, name, data }) => {
   );
 };
 
+// Modal to create a new profile (window.prompt is unsupported in Electron).
+const AddProfileModal = ({ isOpen, onClose, onCreate }) => {
+  const [name, setName] = useState('');
+  const [goal, setGoal] = useState('nutrition_optimization');
+  if (!isOpen) return null;
+  const submit = () => { if (name.trim()) onCreate(name, goal); };
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg p-5 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+        <h3 className="font-bold text-lg text-gray-800 mb-3">Add profile</h3>
+        <label className="block text-xs font-semibold text-gray-500 mb-1">Name</label>
+        <input
+          autoFocus
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && submit()}
+          placeholder="e.g. Jess"
+          className="w-full border border-gray-300 rounded px-2 py-1.5 mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <label className="block text-xs font-semibold text-gray-500 mb-1">Goal</label>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button
+            onClick={() => setGoal('nutrition_optimization')}
+            className={`px-2 py-2 rounded border text-sm ${goal === 'nutrition_optimization' ? 'bg-green-50 border-green-400 text-green-700 font-semibold' : 'border-gray-300 text-gray-600'}`}
+          >🧠 Nutrition</button>
+          <button
+            onClick={() => setGoal('weight_loss')}
+            className={`px-2 py-2 rounded border text-sm ${goal === 'weight_loss' ? 'bg-amber-50 border-amber-400 text-amber-700 font-semibold' : 'border-gray-300 text-gray-600'}`}
+          >⚖️ Weight loss</button>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100">Cancel</button>
+          <button onClick={submit} disabled={!name.trim()} className="px-3 py-1.5 rounded text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">Create</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const QuickAddItem = ({ food, onAdd, onDelete }) => {
   const [qty, setQty] = useState(1);
   const [expanded, setExpanded] = useState(false);
@@ -1472,6 +1511,9 @@ const HealthTracker = () => {
   const [saveMessage, setSaveMessage] = useState('');
   const [backupWorking, setBackupWorking] = useState(false);
   const [preRestoreAvailable, setPreRestoreAvailable] = useState(false);
+  const [people, setPeople] = useState([]);
+  const [activePerson, setActivePersonId] = useState(1);
+  const [addProfileOpen, setAddProfileOpen] = useState(false);
   const [addedMessage, setAddedMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [waterOz, setWaterOz] = useState(0);
@@ -1825,6 +1867,30 @@ const HealthTracker = () => {
     }
   };
   
+  // Multi-person: load profiles, switch, add
+  const refreshPeople = async () => {
+    try {
+      const [list, active] = await Promise.all([listPeople(), getActivePerson()]);
+      setPeople(list || []);
+      setActivePersonId(active || 1);
+    } catch { /* single-person fallback */ }
+  };
+
+  const switchPerson = async (id) => {
+    if (id === activePerson) return;
+    await setActivePerson(id);
+    window.location.reload(); // reload all per-person data for the new profile
+  };
+
+  const handleAddProfile = () => setAddProfileOpen(true);
+
+  const createProfile = async (name, goalType) => {
+    const id = await addPerson({ name: (name || '').trim() || 'New profile', goal_type: goalType });
+    if (id) { await setActivePerson(id); window.location.reload(); }
+  };
+
+  useEffect(() => { refreshPeople(); }, []);
+
   const handleBackup = async () => {
     if (backupWorking) return;
     setBackupWorking(true);
@@ -2411,6 +2477,13 @@ const HealthTracker = () => {
         onAddVital={handleAddVital}
         onDeleteVital={handleDeleteVital}
         formatTime={formatTime}
+      />
+
+      {/* Add Profile Modal */}
+      <AddProfileModal
+        isOpen={addProfileOpen}
+        onClose={() => setAddProfileOpen(false)}
+        onCreate={createProfile}
       />
 
       {/* Settings Modal */}
