@@ -2642,16 +2642,17 @@ const HealthTracker = () => {
           )}
 
           <div className="bg-gray-50 rounded-lg p-3">
-            <h4 className="font-bold text-gray-700 mb-2 text-sm">Paste JSON</h4>
-            <textarea value={foodInput} onChange={e => setFoodInput(e.target.value)} placeholder='{"name":"Salmon","calories":280,"heart":3,"brain":2}' className="w-full border rounded p-2 text-xs font-mono h-16" />
-            {inputError && <p className="text-red-500 text-xs">{inputError}</p>}
-            <button onClick={handleAddFood} className="mt-2 bg-blue-600 text-white px-3 py-1.5 rounded text-sm w-full">Add</button>
+            <div className="flex gap-2">
+              <textarea value={foodInput} onChange={e => setFoodInput(e.target.value)} placeholder='Paste JSON, e.g. {"name":"Salmon","calories":280,"heart":3,"brain":2}' className="flex-1 border rounded p-2 text-xs font-mono h-16" />
+              <button onClick={handleAddFood} className="bg-blue-600 text-white px-4 rounded text-sm shrink-0">Add</button>
+            </div>
+            {inputError && <p className="text-red-500 text-xs mt-1">{inputError}</p>}
           </div>
 
           {/* Quick Add from Library */}
           <div className="bg-gray-50 rounded-lg p-3">
             <h4 className="font-bold text-gray-700 mb-2 text-sm">⚡ Quick Add ({foodLibrary.length})</h4>
-            <div className="space-y-[3px] overflow-y-auto" style={{maxHeight: 'calc(100vh - 400px)'}}>
+            <div className="space-y-[3px] overflow-y-auto" style={{maxHeight: 'calc(100vh - 330px)'}}>
               {[...foodLibrary]
                 .filter(f => !isOptaviaFood(f) || activeGoalType === 'weight_loss')
                 .sort((a,b) => displayCategory(a).localeCompare(displayCategory(b)) || a.name.localeCompare(b.name))
