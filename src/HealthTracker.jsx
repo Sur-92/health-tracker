@@ -173,76 +173,65 @@ const TrendSparkline = ({ series, goal }) => {
 };
 
 // Weight-loss lens: trend weight, adaptive TDEE, energy balance, time-to-goal.
+const WLStat = ({ label, value, unit, valueClass = 'text-gray-800' }) => (
+  <div className="leading-none">
+    <div className="text-[9px] font-semibold text-gray-500 uppercase tracking-wide truncate">{label}</div>
+    <div className={`text-sm font-bold ${valueClass}`}>{value}{unit ? <span className="text-[9px] font-medium text-gray-400"> {unit}</span> : null}</div>
+  </div>
+);
+
 const WeightLossDashboard = ({ data }) => {
   if (!data) return null;
   const d = data;
   const fmt = (n, s = '') => (n == null ? '—' : `${n}${s}`);
   if (d.dataState === 'no_weight') {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-        ⚖️ Log your weight each morning (tap ❤️ Vitals) to start your trend. TDEE and rate appear after ~1–2 weeks.
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
+        ⚖️ Log your weight each morning (❤️ Vitals) to start your trend. TDEE & rate appear after ~1–2 weeks.
       </div>
     );
   }
   const losing = d.ratePerWeek != null && d.ratePerWeek < 0;
   return (
-    <div className="space-y-3">
-      <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-4">
-        <div className="flex justify-between items-end">
-          <div>
-            <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Trend weight</div>
-            <div className="text-3xl font-bold text-gray-800">{fmt(d.trendWeight)} <span className="text-base font-medium text-gray-500">lb</span></div>
-            <div className="text-xs text-gray-500">latest {fmt(d.latestWeight)} · goal {fmt(d.goal)}</div>
-          </div>
-          <div className="text-right">
-            <div className={`text-xl font-bold ${losing ? 'text-green-600' : 'text-orange-600'}`}>{d.ratePerWeek > 0 ? '+' : ''}{fmt(d.ratePerWeek)}<span className="text-xs"> lb/wk</span></div>
-            {d.toGoal != null && <div className="text-xs text-gray-500">{d.toGoal > 0 ? `${d.toGoal} lb to goal` : 'at/under goal 🎉'}</div>}
-          </div>
+    <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-2.5 space-y-1.5 text-gray-800">
+      {/* Trend weight + rate */}
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[9px] font-semibold text-amber-700 uppercase tracking-wide">Trend</span>
+          <span className="text-2xl font-bold leading-none">{fmt(d.trendWeight)}</span>
+          <span className="text-xs text-gray-500">lb</span>
         </div>
-        {d.series && d.series.length >= 2 && <div className="mt-2"><TrendSparkline series={d.series} goal={d.goal} /></div>}
+        <span className={`text-base font-bold leading-none ${losing ? 'text-green-600' : 'text-orange-600'}`}>{d.ratePerWeek > 0 ? '+' : ''}{fmt(d.ratePerWeek)}<span className="text-[10px] font-medium"> lb/wk</span></span>
+      </div>
+      <div className="flex justify-between text-[10px] text-gray-500 leading-none">
+        <span>latest {fmt(d.latestWeight)} · goal {fmt(d.goal)}</span>
+        {d.toGoal != null && <span>{d.toGoal > 0 ? `${d.toGoal} lb to goal` : 'at/under goal 🎉'}</span>}
       </div>
 
-      {d.suggestedTarget != null && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex justify-between items-center">
-          <div>
-            <div className="text-xs font-semibold text-blue-700">🎯 Suggested daily target</div>
-            <div className="text-[10px] text-gray-500">{d.targetRatePerWeek > 0 ? `to lose ~${d.targetRatePerWeek} lb/wk` : 'maintain — at/under goal'}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-blue-700">{d.suggestedTarget}<span className="text-xs font-medium text-gray-500"> kcal</span></div>
-            {d.todayIntake != null && <div className="text-[10px] text-gray-400">ate {Math.round(d.todayIntake)} today</div>}
-          </div>
-        </div>
+      {d.series && d.series.length >= 2 && <TrendSparkline series={d.series} goal={d.goal} />}
+
+      <div className="border-t border-amber-200/70" />
+
+      {/* Compact stats — everything in one grid */}
+      <div className="grid grid-cols-3 gap-x-2 gap-y-1.5">
+        <WLStat label="TDEE" value={fmt(d.tdee)} unit="kcal" />
+        <WLStat label="🎯 Target" value={d.suggestedTarget != null ? d.suggestedTarget : '—'} unit="kcal" valueClass="text-blue-700" />
+        <WLStat
+          label="vs TDEE"
+          value={d.balance == null ? '—' : `${d.balance > 0 ? '+' : ''}${d.balance}`}
+          unit={d.balance == null ? '' : (d.balance < 0 ? 'deficit' : 'surplus')}
+          valueClass={d.balance == null ? 'text-gray-400' : (d.balance < 0 ? 'text-green-600' : 'text-orange-600')}
+        />
+        <WLStat label="ETA" value={d.etaWeeks != null ? `~${d.etaWeeks}` : '—'} unit="wk" />
+        <WLStat label="Protein" value={d.todayProtein != null ? Math.round(d.todayProtein) : '—'} unit={`/ ${fmt(d.proteinTarget)} g`} />
+        <WLStat label="Ate today" value={d.todayIntake != null ? Math.round(d.todayIntake) : '—'} unit="kcal" />
+      </div>
+
+      {(d.tdeeSource || d.dataState === 'learning_tdee') && (
+        <div className="text-[9px] text-gray-400 leading-tight">TDEE {d.tdeeSource}{d.tdeeWindow ? `, ${d.tdeeWindow}d` : ''}{d.dataState === 'learning_tdee' ? ' · learning your real TDEE…' : ''}</div>
       )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white border rounded-lg p-3">
-          <div className="text-xs font-semibold text-gray-500">TDEE {d.tdeeSource && <span className="text-[10px] font-normal text-gray-400">({d.tdeeSource}{d.tdeeWindow ? `, ${d.tdeeWindow}d` : ''})</span>}</div>
-          <div className="text-2xl font-bold text-gray-800">{fmt(d.tdee)}<span className="text-xs font-medium text-gray-500"> kcal</span></div>
-          {d.dataState === 'learning_tdee' && <div className="text-[10px] text-gray-400">estimate — learning your real TDEE…</div>}
-        </div>
-        <div className="bg-white border rounded-lg p-3">
-          <div className="text-xs font-semibold text-gray-500">Today vs TDEE</div>
-          {d.balance == null
-            ? <div className="text-sm text-gray-400 mt-1">log food to see balance</div>
-            : <div className={`text-2xl font-bold ${d.balance < 0 ? 'text-green-600' : 'text-orange-600'}`}>{d.balance > 0 ? '+' : ''}{d.balance}<span className="text-xs font-medium text-gray-500"> kcal</span></div>}
-          <div className="text-[10px] text-gray-400">{d.balance == null ? '' : (d.balance < 0 ? 'deficit' : 'surplus')}{d.todayIntake != null ? ` · ate ${Math.round(d.todayIntake)}` : ''}</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white border rounded-lg p-3">
-          <div className="text-xs font-semibold text-gray-500">Est. time to goal</div>
-          <div className="text-xl font-bold text-gray-800">{d.etaWeeks != null ? `~${d.etaWeeks} wk` : '—'}</div>
-          <div className="text-[10px] text-gray-400">at current trend</div>
-        </div>
-        <div className="bg-white border rounded-lg p-3">
-          <div className="text-xs font-semibold text-gray-500">Protein today</div>
-          <div className="text-xl font-bold text-gray-800">{d.todayProtein != null ? Math.round(d.todayProtein) : '—'}<span className="text-xs text-gray-500"> / {fmt(d.proteinTarget)} g</span></div>
-          <div className="text-[10px] text-gray-400">floor ~0.8 g/lb goal weight</div>
-        </div>
-      </div>
       {d.dataState === 'need_more_weight' && (
-        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">Keep logging weight daily — the trend and TDEE sharpen with ~1–2 weeks of data.</div>
+        <div className="text-[9px] text-amber-700 leading-tight">Keep logging weight daily — trend & TDEE sharpen with ~1–2 wks of data.</div>
       )}
     </div>
   );
@@ -307,7 +296,7 @@ const QuickAddItem = ({ food, onAdd, onDelete, onRename }) => {
 
   return (
     <div className="bg-gray-50 rounded text-sm">
-      <div className="py-1 px-2 group">
+      <div className="py-[3px] px-2 group">
         {editing ? (
           <div className="flex items-center">
             <input
@@ -2652,7 +2641,7 @@ const HealthTracker = () => {
           {/* Quick Add from Library */}
           <div className="bg-gray-50 rounded-lg p-3">
             <h4 className="font-bold text-gray-700 mb-2 text-sm">⚡ Quick Add ({foodLibrary.length})</h4>
-            <div className="space-y-[3px] overflow-y-auto" style={{maxHeight: 'calc(100vh - 330px)'}}>
+            <div className="space-y-[2px] overflow-y-auto" style={{maxHeight: 'calc(100vh - 330px)'}}>
               {[...foodLibrary]
                 .filter(f => !isOptaviaFood(f) || activeGoalType === 'weight_loss')
                 .sort((a,b) => displayCategory(a).localeCompare(displayCategory(b)) || a.name.localeCompare(b.name))
