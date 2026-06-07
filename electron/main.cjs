@@ -477,6 +477,16 @@ function registerIpcHandlers() {
     return true;
   });
 
+  ipcMain.handle('db:updateFood', (event, foodId, updates) => {
+    const allowed = ['name', 'category', 'servingSize'];
+    const keys = Object.keys(updates || {}).filter((k) => allowed.includes(k));
+    if (keys.length === 0) return false;
+    const setClause = keys.map((k) => `${k} = ?`).join(', ');
+    const values = keys.map((k) => updates[k]);
+    db.prepare(`UPDATE foods SET ${setClause} WHERE id = ?`).run(...values, foodId);
+    return true;
+  });
+
   ipcMain.handle('db:saveDayLog', (event, date, foods) => {
     const pid = activePersonId();
     db.prepare('DELETE FROM daily_logs WHERE date = ? AND person_id = ?').run(date, pid);

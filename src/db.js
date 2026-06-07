@@ -308,6 +308,22 @@ export async function deleteFood(foodId) {
   return true;
 }
 
+export async function updateFood(foodId, updates) {
+  if (isElectron) {
+    return window.electronAPI.updateFood(foodId, updates);
+  }
+
+  await initWebDatabase();
+  const allowed = ['name', 'category', 'servingSize'];
+  const keys = Object.keys(updates || {}).filter((k) => allowed.includes(k));
+  if (keys.length === 0) return false;
+  const setClause = keys.map((k) => `${k} = ?`).join(', ');
+  const values = keys.map((k) => updates[k]);
+  db.run(`UPDATE foods SET ${setClause} WHERE id = ?`, [...values, foodId]);
+  await saveToIndexedDB();
+  return true;
+}
+
 export async function saveDayLog(date, foods) {
   if (isElectron) {
     return window.electronAPI.saveDayLog(date, foods);

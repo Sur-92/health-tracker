@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   foodExists: (name) => ipcRenderer.invoke('db:foodExists', name),
   addFood: (food) => ipcRenderer.invoke('db:addFood', food),
   deleteFood: (foodId) => ipcRenderer.invoke('db:deleteFood', foodId),
+  updateFood: (foodId, updates) => ipcRenderer.invoke('db:updateFood', foodId, updates),
 
   // Daily logs
   saveDayLog: (date, foods) => ipcRenderer.invoke('db:saveDayLog', date, foods),

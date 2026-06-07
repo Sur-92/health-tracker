@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Children } from 'react';
-import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
+import { getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
 listPeople, getActivePerson, setActivePerson, addPerson, getWater as getWaterDb, saveWater as saveWaterDb } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
@@ -291,37 +291,77 @@ const normalizeCategory = (c) => {
 const isOptaviaFood = (f) => /optavia/i.test(f?.name || '') || (f?.category || '').toUpperCase() === 'OPTAVIA';
 const displayCategory = (f) => (isOptaviaFood(f) ? 'OPTAVIA' : normalizeCategory(f?.category));
 
-const QuickAddItem = ({ food, onAdd, onDelete }) => {
+const QuickAddItem = ({ food, onAdd, onDelete, onRename }) => {
   const [qty, setQty] = useState(1);
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState(food.name);
+
+  const startEdit = () => { setNameDraft(food.name); setEditing(true); };
+  const cancelEdit = () => { setEditing(false); setNameDraft(food.name); };
+  const saveName = () => {
+    const newName = nameDraft.trim();
+    if (newName && newName !== food.name) onRename(food, newName);
+    setEditing(false);
+  };
 
   return (
     <div className="bg-gray-50 rounded text-sm">
-      <div className="flex justify-between items-center py-1.5 px-2 group">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex-1 text-left truncate hover:text-blue-600 cursor-pointer flex items-center gap-1"
-        >
-          <span className={`text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          {(() => {
-            const cat = displayCategory(food);
-            const isOpt = cat.toUpperCase() === 'OPTAVIA';
-            const shownName = isOpt ? food.name.replace(/^OPTAVIA\s+/i, '') : food.name;
-            return (
-              <>
-                {cat && <span className={`font-semibold ${isOpt ? 'text-green-600' : 'text-gray-500'}`}>{cat.toUpperCase()}: </span>}
-                {shownName} <span className="text-gray-400">({food.calories} cal)</span>
-              </>
-            );
-          })()}
-        </button>
-        <div className="flex items-center gap-1 ml-2">
-          <button onClick={() => onDelete(food)} className="text-red-400 hover:text-red-600 w-6 h-6 rounded flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-          <button onClick={() => setQty(q => Math.max(1, q - 1))} className="bg-gray-200 hover:bg-gray-300 w-6 h-6 rounded flex items-center justify-center text-sm font-bold">−</button>
-          <span className="w-6 text-center font-medium">{qty}</span>
-          <button onClick={() => setQty(q => q + 1)} className="bg-gray-200 hover:bg-gray-300 w-6 h-6 rounded flex items-center justify-center text-sm font-bold">+</button>
-          <button onClick={() => { onAdd(food, qty); setQty(1); }} className="bg-green-500 text-white px-2 py-1 rounded text-xs ml-1">Add</button>
-        </div>
+      <div className="py-1 px-2 group">
+        {editing ? (
+          <div className="flex items-center">
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEdit(); }}
+              className="flex-1 border border-blue-300 rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+            <div className="flex items-center gap-1 ml-2 shrink-0">
+              <button onClick={saveName} className="bg-green-500 text-white px-2 py-1 rounded text-xs">Save</button>
+              <button onClick={cancelEdit} className="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Name row — name truncates; controls pinned to the right */}
+            <div className="flex justify-between items-center gap-2">
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="flex-1 min-w-0 text-left hover:text-blue-600 cursor-pointer flex items-center gap-1"
+              >
+                <span className={`text-xs shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+                <span className="truncate">
+                  {(() => {
+                    const cat = displayCategory(food);
+                    const isOpt = cat.toUpperCase() === 'OPTAVIA';
+                    const shownName = isOpt ? food.name.replace(/^OPTAVIA\s+/i, '') : food.name;
+                    return (
+                      <>
+                        {cat && <span className={`font-semibold ${isOpt ? 'text-green-600' : 'text-gray-500'}`}>{cat.toUpperCase()}: </span>}
+                        {shownName}
+                      </>
+                    );
+                  })()}
+                </span>
+              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={startEdit} title="Rename" className="text-gray-400 hover:text-blue-600 w-6 h-6 rounded flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✎</button>
+                <button onClick={() => onDelete(food)} className="text-red-400 hover:text-red-600 w-6 h-6 rounded flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                <button onClick={() => setQty(q => Math.max(1, q - 1))} className="bg-gray-200 hover:bg-gray-300 w-6 h-6 rounded flex items-center justify-center text-sm font-bold">−</button>
+                <span className="w-6 text-center font-medium">{qty}</span>
+                <button onClick={() => setQty(q => q + 1)} className="bg-gray-200 hover:bg-gray-300 w-6 h-6 rounded flex items-center justify-center text-sm font-bold">+</button>
+                <button onClick={() => { onAdd(food, qty); setQty(1); }} className="bg-green-500 text-white px-2 py-1 rounded text-xs ml-1">Add</button>
+              </div>
+            </div>
+            {/* Serving descriptor — small, indented under the name */}
+            {food.servingSize && (
+              <div className="ml-5 text-[11px] text-gray-400 leading-tight truncate">
+                {food.servingSize}{food.calories ? ` · ${food.calories} cal` : ''}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {expanded && (
@@ -2374,12 +2414,11 @@ const HealthTracker = () => {
         {saveMessage && <p className="text-xs mt-1 text-center">{saveMessage}</p>}
       </div>
 
-      {/* 3-Panel Layout */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* 3-Panel Layout — middle trimmed 15% (1→0.85fr), right gains it (1→1.15fr) */}
+      <div className="grid grid-cols-[1fr_0.85fr_1.15fr] gap-4">
 
         {/* LEFT PANEL: Food */}
         <div className="bg-white rounded-lg border p-4 space-y-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 140px)'}}>
-          <h2 className="font-bold text-lg text-gray-700 border-b pb-2">🍽️ Food</h2>
           {activeGoalType === 'weight_loss' && <WeightLossDashboard data={weightLoss} />}
           {foods.length > 0 && activeGoalType !== 'weight_loss' && (
             <>
@@ -2437,7 +2476,6 @@ const HealthTracker = () => {
 
         {/* MIDDLE PANEL: Nutrients */}
         <div className="bg-white rounded-lg border p-4 space-y-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 140px)'}}>
-          <h2 className="font-bold text-lg text-gray-700 border-b pb-2">📊 Nutrients</h2>
           {foods.length === 0 ? (
             <p className="text-gray-400 text-center py-8 text-sm">No foods logged yet</p>
           ) : (
@@ -2595,7 +2633,6 @@ const HealthTracker = () => {
 
         {/* RIGHT PANEL: Add */}
         <div className="bg-white rounded-lg border p-4 space-y-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 140px)'}}>
-          <h2 className="font-bold text-lg text-gray-700 border-b pb-2">➕ Add Food</h2>
 
           {/* Confirmation Toast */}
           {addedMessage && (
@@ -2647,6 +2684,9 @@ const HealthTracker = () => {
                     await deleteFood(food.id);
                     setFoodLibrary(prev => prev.filter(f => f.id !== food.id));
                   }
+                }} onRename={async (food, newName) => {
+                  await updateFood(food.id, { name: newName });
+                  setFoodLibrary(prev => prev.map(f => f.id === food.id ? { ...f, name: newName } : f));
                 }} />
               ))}
             </div>
