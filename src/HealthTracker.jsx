@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Children } from 'react';
-import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig } from './db';
+import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, canBackup } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
 
@@ -821,7 +821,7 @@ const AnalyticsPanel = ({ isOpen, onClose, allDaysData, allVitals, userSettings 
 
     const totals = {
       calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0,
-      addedSugar: 0, sodium: 0, omega3Total: 0
+      addedSugar: 0, sodium: 0, omega3EPADHA: 0
     };
 
     filteredDays.forEach(([, foods]) => {
@@ -833,7 +833,7 @@ const AnalyticsPanel = ({ isOpen, onClose, allDaysData, allVitals, userSettings 
         totals.fiber += food.fiber || 0;
         totals.addedSugar += food.addedSugar || 0;
         totals.sodium += food.sodium || 0;
-        totals.omega3Total += (food.omega3ALA || 0) + (food.omega3EPA || 0) + (food.omega3DHA || 0);
+        totals.omega3EPADHA += (food.omega3EPA || 0) + (food.omega3DHA || 0);
       });
     });
 
@@ -846,7 +846,7 @@ const AnalyticsPanel = ({ isOpen, onClose, allDaysData, allVitals, userSettings 
       fiber: Math.round(totals.fiber / days),
       addedSugar: Math.round(totals.addedSugar / days),
       sodium: Math.round(totals.sodium / days),
-      omega3Total: (totals.omega3Total / days).toFixed(2)
+      omega3EPADHA: Math.round(totals.omega3EPADHA / days) // mg EPA+DHA/day
     };
   };
 
@@ -1111,13 +1111,13 @@ const AnalyticsPanel = ({ isOpen, onClose, allDaysData, allVitals, userSettings 
                     <ProgressBar value={nutritionAvg.sodium} max={2300} isLimit />
                   </div>
 
-                  {/* Omega-3 */}
+                  {/* Omega-3 (marine: EPA+DHA) */}
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span>Omega-3 Total</span>
-                      <span className="font-medium">{nutritionAvg.omega3Total}g / 4.0g</span>
+                      <span>Omega-3 (EPA+DHA)</span>
+                      <span className="font-medium">{nutritionAvg.omega3EPADHA} mg / 500 mg</span>
                     </div>
-                    <ProgressBar value={parseFloat(nutritionAvg.omega3Total)} max={4.0} />
+                    <ProgressBar value={nutritionAvg.omega3EPADHA} max={500} />
                   </div>
                 </div>
               ) : (
@@ -1469,6 +1469,7 @@ const HealthTracker = () => {
   const [inputError, setInputError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveMessage, setSaveMessage] = useState('');
+  const [backupWorking, setBackupWorking] = useState(false);
   const [addedMessage, setAddedMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [waterOz, setWaterOz] = useState(0);
@@ -1768,7 +1769,6 @@ const HealthTracker = () => {
     arr.forEach(f => {
       allKeys.forEach(k => t[k] += (f[k] || 0));
     });
-    t.omega3Total = (t.omega3ALA || 0) + (t.omega3EPA || 0) + (t.omega3DHA || 0);
     return t;
   };
 
@@ -1818,6 +1818,43 @@ const HealthTracker = () => {
     }
   };
   
+  const handleBackup = async () => {
+    if (backupWorking) return;
+    setBackupWorking(true);
+    setSaveMessage('☁️ Backing up…');
+    try {
+      const res = await backupData();
+      setSaveMessage((res?.ok ? '✓ ' : '⚠️ ') + (res?.message || (res?.ok ? 'Backed up' : 'Backup failed')));
+    } catch {
+      setSaveMessage('⚠️ Backup failed');
+    } finally {
+      setBackupWorking(false);
+      setTimeout(() => setSaveMessage(''), 5000);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (backupWorking) return;
+    if (!window.confirm('Restore replaces your current local data with the latest cloud backup. This cannot be undone. Continue?')) return;
+    setBackupWorking(true);
+    setSaveMessage('☁️ Restoring…');
+    try {
+      const res = await restoreData();
+      if (res?.ok) {
+        setSaveMessage('✓ ' + (res.message || 'Restored'));
+        setTimeout(() => window.location.reload(), 900); // reload to pick up the swapped DB
+      } else {
+        setSaveMessage('⚠️ ' + (res?.message || 'Restore failed'));
+        setBackupWorking(false);
+        setTimeout(() => setSaveMessage(''), 5000);
+      }
+    } catch {
+      setSaveMessage('⚠️ Restore failed');
+      setBackupWorking(false);
+      setTimeout(() => setSaveMessage(''), 5000);
+    }
+  };
+
   const saveDay = () => {
     try {
       const exportData = {
@@ -2015,6 +2052,16 @@ const HealthTracker = () => {
             </button>
             <button onClick={saveDay} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all" title="Export Day">💾</button>
             <button onClick={() => fileInputRef.current?.click()} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all" title="Import">📂</button>
+            {canBackup && (
+              <button onClick={handleBackup} disabled={backupWorking} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all disabled:opacity-50" title="Backup to cloud">
+                {backupWorking ? '⏳' : '☁️'}
+              </button>
+            )}
+            {canBackup && (
+              <button onClick={handleRestore} disabled={backupWorking} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all disabled:opacity-50" title="Restore from cloud">
+                ☁️↓
+              </button>
+            )}
             <button
               onClick={() => setSettingsOpen(true)}
               className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all"
@@ -2046,8 +2093,8 @@ const HealthTracker = () => {
                   <div className="text-xs text-red-600">{totals.addedSugar?.toFixed(0)}g / 36g</div>
                 </div>
                 <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                  <div className="flex justify-between"><span className="text-blue-700 font-bold text-sm">🐟 Omega-3</span><span className="text-lg font-bold">{Math.round((totals.omega3Total/4.0)*100)}%</span></div>
-                  <div className="text-xs text-blue-600">{totals.omega3Total?.toFixed(2)}g / 4.0g</div>
+                  <div className="flex justify-between"><span className="text-blue-700 font-bold text-sm">🐟 Omega-3</span><span className="text-lg font-bold">{Math.round((((totals.omega3EPA||0)+(totals.omega3DHA||0))/500)*100)}%</span></div>
+                  <div className="text-xs text-blue-600">{Math.round((totals.omega3EPA||0)+(totals.omega3DHA||0))} mg EPA+DHA / 500 mg</div>
                 </div>
               </div>
             </>

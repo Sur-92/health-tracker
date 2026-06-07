@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getNutritionConfig: () => ipcRenderer.invoke('db:getNutritionConfig'),
   saveNutritionConfig: (config) => ipcRenderer.invoke('db:saveNutritionConfig', config),
 
+  // Cloud backup / restore
+  backup: () => ipcRenderer.invoke('backup:run'),
+  restore: () => ipcRenderer.invoke('restore:run'),
+
   // Platform info
   isElectron: true
 });

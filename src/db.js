@@ -577,3 +577,23 @@ export async function saveNutritionConfig(config) {
   await saveToIndexedDB();
   return true;
 }
+
+// ============================================
+// CLOUD BACKUP (desktop only)
+// ============================================
+
+export const canBackup = isElectron;
+
+export async function backupData() {
+  if (isElectron) {
+    return window.electronAPI.backup();
+  }
+  return { ok: false, message: 'Backup is available in the desktop app only' };
+}
+
+export async function restoreData() {
+  if (isElectron) {
+    return window.electronAPI.restore();
+  }
+  return { ok: false, message: 'Restore is available in the desktop app only' };
+}

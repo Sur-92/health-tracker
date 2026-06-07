@@ -1,6 +1,127 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { execFile } = require('child_process');
 const Database = require('better-sqlite3');
+
+// --- Git cloud backup ----------------------------------------------------
+// Mirrors the Divot backup pattern, but since Electron isn't sandboxed we run
+// git directly here (no LaunchAgent/trigger file needed). Snapshots the live
+// DB into the private ~/app-data repo and pushes to GitHub via the gh token.
+const APP_DATA_REPO = path.join(os.homedir(), 'app-data');
+const BACKUP_REMOTE = 'https://github.com/Sur-92/app-data.git';
+
+// GUI-launched apps get a minimal PATH; ensure git/gh (Homebrew + system) resolve.
+const BACKUP_ENV = () => ({
+  ...process.env,
+  PATH: `/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
+});
+
+// Run a command, resolving { code, stdout, stderr } — never rejects, so callers
+// can branch on exit code like the shell script does.
+function runCmd(cmd, args, opts = {}) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
+      resolve({ code: err ? (err.code ?? 1) : 0, stdout: stdout || '', stderr: stderr || '' });
+    });
+  });
+}
+
+function backupStamp() {
+  return new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+async function runBackup() {
+  if (!fs.existsSync(path.join(APP_DATA_REPO, '.git'))) {
+    return { ok: false, message: 'Backup repo (~/app-data) not found' };
+  }
+  const destDir = path.join(APP_DATA_REPO, 'HealthTracker');
+  fs.mkdirSync(destDir, { recursive: true });
+  const dest = path.join(destDir, 'health-tracker.db');
+
+  // Consistent point-in-time snapshot of the live DB (safe while app runs).
+  try {
+    await db.backup(dest);
+  } catch (e) {
+    return { ok: false, message: `Snapshot failed: ${e.message}` };
+  }
+
+  const env = BACKUP_ENV();
+  const git = (...args) => runCmd('git', args, { cwd: APP_DATA_REPO, env });
+
+  await git('add', '-A');
+  // `diff --cached --quiet` exits 0 when nothing is staged.
+  if ((await git('diff', '--cached', '--quiet')).code === 0) {
+    return { ok: true, message: `Up to date — ${backupStamp()}` };
+  }
+
+  const commit = await git('commit', '-q', '-m', `HealthTracker snapshot ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`);
+  if (commit.code !== 0) return { ok: false, message: 'Commit failed' };
+
+  const tok = await runCmd('gh', ['auth', 'token'], { env });
+  const token = tok.code === 0 ? tok.stdout.trim() : '';
+  const authUrl = token ? `https://x-access-token:${token}@github.com/Sur-92/app-data.git` : BACKUP_REMOTE;
+
+  // Absorb any out-of-band commits on the remote before pushing.
+  await git('fetch', '-q', authUrl, 'main');
+  const rebase = await git('rebase', '-q', 'FETCH_HEAD');
+  if (rebase.code !== 0) {
+    await git('rebase', '--abort');
+    return { ok: false, message: 'Rebase conflict — fix manually' };
+  }
+
+  let push;
+  if (token) {
+    push = await git('push', '-q', authUrl, 'HEAD:main');
+    if (push.code === 0) await git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  } else {
+    push = await git('push', '-q', 'origin', 'main');
+  }
+  return push.code === 0
+    ? { ok: true, message: `Backed up — ${backupStamp()}` }
+    : { ok: false, message: 'Saved locally; push failed' };
+}
+
+// Pull the latest snapshot from the cloud and swap it in for the live DB.
+// Destructive: overwrites local data with the cloud copy (the renderer confirms
+// first, then reloads).
+async function runRestore() {
+  if (!fs.existsSync(path.join(APP_DATA_REPO, '.git'))) {
+    return { ok: false, message: 'Backup repo (~/app-data) not found' };
+  }
+  const snap = path.join(APP_DATA_REPO, 'HealthTracker', 'health-tracker.db');
+
+  const env = BACKUP_ENV();
+  const git = (...args) => runCmd('git', args, { cwd: APP_DATA_REPO, env });
+
+  const tok = await runCmd('gh', ['auth', 'token'], { env });
+  const token = tok.code === 0 ? tok.stdout.trim() : '';
+  const authUrl = token ? `https://x-access-token:${token}@github.com/Sur-92/app-data.git` : BACKUP_REMOTE;
+
+  // Fetch and check out just our snapshot file at the remote's latest.
+  if ((await git('fetch', '-q', authUrl, 'main')).code !== 0) {
+    return { ok: false, message: 'Could not reach cloud backup' };
+  }
+  const co = await git('checkout', 'FETCH_HEAD', '--', 'HealthTracker/health-tracker.db');
+  if (co.code !== 0 || !fs.existsSync(snap)) {
+    return { ok: false, message: 'No cloud backup found' };
+  }
+
+  // Swap the file in for the live DB, then reopen the connection.
+  try {
+    db.close();
+    for (const ext of ['', '-wal', '-shm']) {
+      try { fs.rmSync(DB_PATH + ext); } catch { /* ignore */ }
+    }
+    fs.copyFileSync(snap, DB_PATH);
+    db = new Database(DB_PATH);
+  } catch (e) {
+    try { db = new Database(DB_PATH); } catch { /* leave closed */ }
+    return { ok: false, message: `Restore failed: ${e.message}` };
+  }
+  return { ok: true, message: `Restored — ${backupStamp()}` };
+}
 
 let mainWindow;
 let db;
@@ -344,6 +465,24 @@ function registerIpcHandlers() {
     const stmt = db.prepare('INSERT INTO nutrition_config (id, config_data) VALUES (1, ?)');
     stmt.run(configData);
     return true;
+  });
+
+  // Cloud backup: snapshot DB into ~/app-data and push to GitHub
+  ipcMain.handle('backup:run', async () => {
+    try {
+      return await runBackup();
+    } catch (e) {
+      return { ok: false, message: `Backup error: ${e.message}` };
+    }
+  });
+
+  // Cloud restore: pull latest snapshot from GitHub and swap it in
+  ipcMain.handle('restore:run', async () => {
+    try {
+      return await runRestore();
+    } catch (e) {
+      return { ok: false, message: `Restore error: ${e.message}` };
+    }
   });
 }
 
