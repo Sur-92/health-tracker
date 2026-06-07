@@ -32,6 +32,15 @@ function backupStamp() {
   return new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+// Local safety copy of the DB taken just before a restore, so a mistaken
+// restore can be undone. Lives next to the live DB (never pushed anywhere).
+function preRestorePath() {
+  return path.join(path.dirname(DB_PATH), 'health-tracker.pre-restore.db');
+}
+function clearPreRestore() {
+  try { fs.rmSync(preRestorePath(), { force: true }); } catch { /* ignore */ }
+}
+
 async function runBackup() {
   if (!fs.existsSync(path.join(APP_DATA_REPO, '.git'))) {
     return { ok: false, message: 'Backup repo (~/app-data) not found' };
@@ -53,6 +62,7 @@ async function runBackup() {
   await git('add', '-A');
   // `diff --cached --quiet` exits 0 when nothing is staged.
   if ((await git('diff', '--cached', '--quiet')).code === 0) {
+    clearPreRestore(); // current state is the saved state
     return { ok: true, message: `Up to date — ${backupStamp()}` };
   }
 
@@ -78,9 +88,11 @@ async function runBackup() {
   } else {
     push = await git('push', '-q', 'origin', 'main');
   }
-  return push.code === 0
-    ? { ok: true, message: `Backed up — ${backupStamp()}` }
-    : { ok: false, message: 'Saved locally; push failed' };
+  if (push.code === 0) {
+    clearPreRestore(); // restored state is now committed; drop the undo copy
+    return { ok: true, message: `Backed up — ${backupStamp()}` };
+  }
+  return { ok: false, message: 'Saved locally; push failed' };
 }
 
 // Pull the latest snapshot from the cloud and swap it in for the live DB.
@@ -108,6 +120,14 @@ async function runRestore() {
     return { ok: false, message: 'No cloud backup found' };
   }
 
+  // Safety: consistent copy of the CURRENT db before overwriting it. Abort the
+  // whole restore if this fails, so we never do an irreversible overwrite.
+  try {
+    await db.backup(preRestorePath());
+  } catch (e) {
+    return { ok: false, message: `Restore aborted: safety copy failed (${e.message})` };
+  }
+
   // Swap the file in for the live DB, then reopen the connection.
   try {
     db.close();
@@ -121,6 +141,27 @@ async function runRestore() {
     return { ok: false, message: `Restore failed: ${e.message}` };
   }
   return { ok: true, message: `Restored — ${backupStamp()}` };
+}
+
+// Undo the last restore by swapping the pre-restore safety copy back in.
+async function runRestoreUndo() {
+  const safety = preRestorePath();
+  if (!fs.existsSync(safety)) {
+    return { ok: false, message: 'No pre-restore copy to undo' };
+  }
+  try {
+    db.close();
+    for (const ext of ['', '-wal', '-shm']) {
+      try { fs.rmSync(DB_PATH + ext); } catch { /* ignore */ }
+    }
+    fs.copyFileSync(safety, DB_PATH);
+    db = new Database(DB_PATH);
+    fs.rmSync(safety, { force: true }); // consume it
+  } catch (e) {
+    try { db = new Database(DB_PATH); } catch { /* leave closed */ }
+    return { ok: false, message: `Undo failed: ${e.message}` };
+  }
+  return { ok: true, message: `Reverted to pre-restore — ${backupStamp()}` };
 }
 
 let mainWindow;
@@ -483,6 +524,20 @@ function registerIpcHandlers() {
     } catch (e) {
       return { ok: false, message: `Restore error: ${e.message}` };
     }
+  });
+
+  // Undo the last restore (swap the pre-restore safety copy back in)
+  ipcMain.handle('restore:undo', async () => {
+    try {
+      return await runRestoreUndo();
+    } catch (e) {
+      return { ok: false, message: `Undo error: ${e.message}` };
+    }
+  });
+
+  // Whether an undo (pre-restore copy) is currently available
+  ipcMain.handle('restore:hasPrev', () => {
+    try { return fs.existsSync(preRestorePath()); } catch { return false; }
   });
 }
 

@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Cloud backup / restore
   backup: () => ipcRenderer.invoke('backup:run'),
   restore: () => ipcRenderer.invoke('restore:run'),
+  restoreUndo: () => ipcRenderer.invoke('restore:undo'),
+  hasPreRestore: () => ipcRenderer.invoke('restore:hasPrev'),
 
   // Platform info
   isElectron: true

@@ -597,3 +597,17 @@ export async function restoreData() {
   }
   return { ok: false, message: 'Restore is available in the desktop app only' };
 }
+
+export async function undoRestore() {
+  if (isElectron) {
+    return window.electronAPI.restoreUndo();
+  }
+  return { ok: false, message: 'Restore is available in the desktop app only' };
+}
+
+export async function hasPreRestore() {
+  if (isElectron) {
+    return window.electronAPI.hasPreRestore();
+  }
+  return false;
+}

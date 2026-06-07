@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Children } from 'react';
-import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, canBackup } from './db';
+import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
 
@@ -1470,6 +1470,7 @@ const HealthTracker = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveMessage, setSaveMessage] = useState('');
   const [backupWorking, setBackupWorking] = useState(false);
+  const [preRestoreAvailable, setPreRestoreAvailable] = useState(false);
   const [addedMessage, setAddedMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [waterOz, setWaterOz] = useState(0);
@@ -1726,6 +1727,11 @@ const HealthTracker = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Show the "Undo restore" affordance only when a pre-restore safety copy exists
+  useEffect(() => {
+    if (canBackup) hasPreRestore().then(setPreRestoreAvailable).catch(() => {});
+  }, []);
+
   // Save foods to database when foods change
   useEffect(() => {
     if (isLoading) return; // Don't save during initial load
@@ -1824,6 +1830,7 @@ const HealthTracker = () => {
     setSaveMessage('☁️ Backing up…');
     try {
       const res = await backupData();
+      if (res?.ok) setPreRestoreAvailable(false); // restored state committed; undo no longer applies
       setSaveMessage((res?.ok ? '✓ ' : '⚠️ ') + (res?.message || (res?.ok ? 'Backed up' : 'Backup failed')));
     } catch {
       setSaveMessage('⚠️ Backup failed');
@@ -1850,6 +1857,28 @@ const HealthTracker = () => {
       }
     } catch {
       setSaveMessage('⚠️ Restore failed');
+      setBackupWorking(false);
+      setTimeout(() => setSaveMessage(''), 5000);
+    }
+  };
+
+  const handleRestoreUndo = async () => {
+    if (backupWorking) return;
+    if (!window.confirm('Undo the last restore? This puts back the data you had right before restoring.')) return;
+    setBackupWorking(true);
+    setSaveMessage('↩️ Undoing restore…');
+    try {
+      const res = await undoRestore();
+      if (res?.ok) {
+        setSaveMessage('✓ ' + (res.message || 'Reverted'));
+        setTimeout(() => window.location.reload(), 900);
+      } else {
+        setSaveMessage('⚠️ ' + (res?.message || 'Undo failed'));
+        setBackupWorking(false);
+        setTimeout(() => setSaveMessage(''), 5000);
+      }
+    } catch {
+      setSaveMessage('⚠️ Undo failed');
       setBackupWorking(false);
       setTimeout(() => setSaveMessage(''), 5000);
     }
@@ -2060,6 +2089,11 @@ const HealthTracker = () => {
             {canBackup && (
               <button onClick={handleRestore} disabled={backupWorking} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all disabled:opacity-50" title="Restore from cloud">
                 ☁️↓
+              </button>
+            )}
+            {canBackup && preRestoreAvailable && (
+              <button onClick={handleRestoreUndo} disabled={backupWorking} className="bg-amber-400/30 hover:bg-amber-400/40 px-2 py-1 rounded text-sm transition-all disabled:opacity-50" title="Undo last restore">
+                ↩️
               </button>
             )}
             <button
