@@ -1,0 +1,51 @@
+[
+  {
+    "name": "Barbell Bench Press",
+    "category": "Chest",
+    "equipment": "Barbell",
+    "primaryMuscles": ["chest", "triceps"],
+    "secondaryMuscles": ["front-deltoids"]
+  },
+  {
+    "name": "Pull-Up",
+    "category": "Back",
+    "equipment": "Bodyweight",
+    "primaryMuscles": ["upper-back", "biceps"],
+    "secondaryMuscles": ["forearm", "back-deltoids"]
+  },
+  {
+    "name": "Deadlift",
+    "category": "Back",
+    "equipment": "Barbell",
+    "primaryMuscles": ["lower-back", "gluteal", "hamstring"],
+    "secondaryMuscles": ["trapezius", "forearm", "quadriceps"]
+  },
+  {
+    "name": "Overhead Press",
+    "category": "Shoulders",
+    "equipment": "Barbell",
+    "primaryMuscles": ["front-deltoids", "triceps"],
+    "secondaryMuscles": ["trapezius"]
+  },
+  {
+    "name": "Dumbbell Bicep Curl",
+    "category": "Arms",
+    "equipment": "Dumbbell",
+    "primaryMuscles": ["biceps"],
+    "secondaryMuscles": ["forearm"]
+  },
+  {
+    "name": "Barbell Back Squat",
+    "category": "Legs",
+    "equipment": "Barbell",
+    "primaryMuscles": ["quadriceps", "gluteal"],
+    "secondaryMuscles": ["hamstring", "adductor", "calves"]
+  },
+  {
+    "name": "Plank",
+    "category": "Core",
+    "equipment": "Bodyweight",
+    "primaryMuscles": ["abs"],
+    "secondaryMuscles": ["obliques", "lower-back"]
+  }
+]

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Children } from 'react';
-import { getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
+import Model from 'react-body-highlighter';
+import { getExercises, addExercise, deleteExercise, getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
 listPeople, getActivePerson, setActivePerson, addPerson, getWater as getWaterDb, saveWater as saveWaterDb } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
@@ -279,6 +280,95 @@ const normalizeCategory = (c) => {
 // the weight-loss lens (Dana), not the nutrition lens (Steve).
 const isOptaviaFood = (f) => /optavia/i.test(f?.name || '') || (f?.category || '').toUpperCase() === 'OPTAVIA';
 const displayCategory = (f) => (isOptaviaFood(f) ? 'OPTAVIA' : normalizeCategory(f?.category));
+
+// ── Fitness: muscle map + exercise library ──────────────────────────────────
+// Colors index by (frequency - 1): secondary muscles use freq 1, primary use 2.
+const MUSCLE_HIGHLIGHT_COLORS = ['#bbf7d0', '#22c55e', '#15803d'];
+const VALID_MUSCLES = 'chest, biceps, triceps, forearm, front-deltoids, back-deltoids, abs, obliques, trapezius, upper-back, lower-back, quadriceps, hamstring, gluteal, adductor, abductors, calves, neck, head';
+
+const ExerciseItem = ({ ex, selected, onSelect, onDelete }) => (
+  <div
+    onClick={() => onSelect(ex)}
+    className={`px-2 py-[3px] rounded cursor-pointer group flex justify-between items-center ${selected ? 'bg-green-100 ring-1 ring-green-400' : 'bg-gray-50 hover:bg-gray-100'}`}
+  >
+    <div className="min-w-0">
+      <div className="text-sm truncate">{ex.category && <span className="font-semibold text-gray-500">{ex.category.toUpperCase()}: </span>}{ex.name}</div>
+      <div className="text-[10px] text-gray-400 truncate">{(ex.primaryMuscles || []).join(', ') || 'no muscles tagged'}{ex.equipment ? ` · ${ex.equipment}` : ''}</div>
+    </div>
+    <button onClick={(e) => { e.stopPropagation(); onDelete(ex); }} className="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100 shrink-0 ml-2">✕</button>
+  </div>
+);
+
+const FitnessView = ({ exercises, onAddExercise, onDeleteExercise }) => {
+  const [selected, setSelected] = useState(null);
+  const [input, setInput] = useState('');
+  const [err, setErr] = useState('');
+
+  const modelData = selected ? [
+    { name: `${selected.name} (secondary)`, muscles: selected.secondaryMuscles || [], frequency: 1 },
+    { name: selected.name, muscles: selected.primaryMuscles || [], frequency: 2 },
+  ] : [];
+
+  const visible = [...exercises].sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
+
+  const handleAdd = async () => {
+    setErr('');
+    try {
+      const trimmed = input.trim();
+      if (!trimmed) return;
+      const parsed = trimmed.startsWith('[') ? JSON.parse(trimmed) : [JSON.parse(trimmed)];
+      for (const ex of parsed) { if (ex.name) await onAddExercise(ex); }
+      setInput('');
+    } catch { setErr('Invalid JSON'); }
+  };
+
+  return (
+    <div className="grid grid-cols-[1.3fr_1fr] gap-4">
+      {/* Body map */}
+      <div className="bg-white rounded-lg border p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <div className="flex justify-center gap-4 flex-wrap">
+          <Model data={modelData} type="anterior" highlightedColors={MUSCLE_HIGHLIGHT_COLORS} style={{ width: '220px' }} />
+          <Model data={modelData} type="posterior" highlightedColors={MUSCLE_HIGHLIGHT_COLORS} style={{ width: '220px' }} />
+        </div>
+        <div className="mt-3 text-center min-h-[3rem]">
+          {selected ? (
+            <>
+              <div className="font-bold text-gray-700">{selected.name}</div>
+              <div className="text-xs text-gray-500">Primary: {(selected.primaryMuscles || []).join(', ') || '—'}</div>
+              {(selected.secondaryMuscles || []).length > 0 && <div className="text-xs text-gray-400">Secondary: {selected.secondaryMuscles.join(', ')}</div>}
+            </>
+          ) : <div className="text-sm text-gray-400">Select an exercise to see the muscles it works</div>}
+        </div>
+        <div className="mt-2 flex justify-center gap-3 text-[10px] text-gray-500">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: MUSCLE_HIGHLIGHT_COLORS[1] }} />primary</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block" style={{ background: MUSCLE_HIGHLIGHT_COLORS[0] }} />secondary</span>
+        </div>
+      </div>
+
+      {/* Exercise library */}
+      <div className="bg-white rounded-lg border p-4 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="flex gap-2">
+            <textarea value={input} onChange={e => setInput(e.target.value)} placeholder='Paste exercise JSON, e.g. {"name":"Bench Press","category":"Chest","equipment":"Barbell","primaryMuscles":["chest","triceps"],"secondaryMuscles":["front-deltoids"]}' className="flex-1 border rounded p-2 text-xs font-mono h-16" />
+            <button onClick={handleAdd} className="bg-blue-600 text-white px-4 rounded text-sm shrink-0">Add</button>
+          </div>
+          {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
+        </div>
+        <div>
+          <h4 className="font-bold text-gray-700 mb-2 text-sm">🏋️ Exercises ({visible.length})</h4>
+          <div className="space-y-[2px]">
+            {visible.map((ex, i) => (
+              <ExerciseItem key={ex.id || i} ex={ex} selected={!!selected && selected.id === ex.id} onSelect={setSelected} onDelete={onDeleteExercise} />
+            ))}
+            {visible.length === 0 && (
+              <div className="text-xs text-gray-400 p-2 leading-relaxed">No exercises yet — paste one above.<br /><span className="text-[10px]">Valid muscle IDs: {VALID_MUSCLES}</span></div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const QuickAddItem = ({ food, onAdd, onDelete, onRename }) => {
   const [qty, setQty] = useState(1);
@@ -1693,6 +1783,8 @@ const HealthTracker = () => {
   const [foods, setFoods] = useState([]);
   const [foodLibrary, setFoodLibrary] = useState([]);
   const [foodInput, setFoodInput] = useState('');
+  const [activeTab, setActiveTab] = useState('food');
+  const [exercises, setExercises] = useState([]);
   const [inputError, setInputError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveMessage, setSaveMessage] = useState('');
@@ -1816,12 +1908,14 @@ const HealthTracker = () => {
   useEffect(() => {
     async function loadData() {
       try {
-        const [library, logs] = await Promise.all([
+        const [library, logs, exerciseList] = await Promise.all([
           getAllFoods(),
-          getAllDayLogs()
+          getAllDayLogs(),
+          getExercises()
         ]);
         setFoodLibrary(library);
         setAllDaysData(logs);
+        setExercises(exerciseList);
         // Load today's foods if available
         if (logs[today]) {
           setFoods(logs[today].map(f => ({ ...f, id: f.id || Date.now() + Math.random() })));
@@ -2026,6 +2120,10 @@ const HealthTracker = () => {
 
   // Which lens to show, and the weight-loss metrics for the active profile
   const activeGoalType = (people.find(p => p.id === activePerson) || {}).goal_type || 'nutrition_optimization';
+  // Foods visible to the active profile (OPTAVIA only shows on the weight-loss lens), sorted for the Quick Add list.
+  const visibleFoods = [...foodLibrary]
+    .filter(f => !isOptaviaFood(f) || activeGoalType === 'weight_loss')
+    .sort((a, b) => displayCategory(a).localeCompare(displayCategory(b)) || a.name.localeCompare(b.name));
   const weightLoss = activeGoalType === 'weight_loss'
     ? computeWeightLoss({
         weighIns: (allVitals || []).filter(v => v.weight != null).map(v => ({ date: v.date, weight: v.weight })),
@@ -2403,7 +2501,20 @@ const HealthTracker = () => {
         {saveMessage && <p className="text-xs mt-1 text-center">{saveMessage}</p>}
       </div>
 
-      {/* 3-Panel Layout — middle trimmed 15% (1→0.85fr), right gains it (1→1.15fr) */}
+      {/* Tab bar */}
+      <div className="flex gap-2 mb-3">
+        {[['food', '🍽 Food'], ['fitness', '💪 Fitness']].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${activeTab === key ? 'bg-blue-600 text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'food' && (
       <div className="grid grid-cols-[1fr_0.85fr_1.15fr] gap-4">
 
         {/* LEFT PANEL: Food */}
@@ -2640,12 +2751,9 @@ const HealthTracker = () => {
 
           {/* Quick Add from Library */}
           <div className="bg-gray-50 rounded-lg p-3">
-            <h4 className="font-bold text-gray-700 mb-2 text-sm">⚡ Quick Add ({foodLibrary.length})</h4>
+            <h4 className="font-bold text-gray-700 mb-2 text-sm">⚡ Quick Add ({visibleFoods.length})</h4>
             <div className="space-y-[2px] overflow-y-auto" style={{maxHeight: 'calc(100vh - 330px)'}}>
-              {[...foodLibrary]
-                .filter(f => !isOptaviaFood(f) || activeGoalType === 'weight_loss')
-                .sort((a,b) => displayCategory(a).localeCompare(displayCategory(b)) || a.name.localeCompare(b.name))
-                .map((f, i) => (
+              {visibleFoods.map((f, i) => (
                 <QuickAddItem key={f.id || i} food={f} onAdd={(food, qty) => {
                   const multiplied = { ...food };
                   const numericKeys = [
@@ -2683,7 +2791,25 @@ const HealthTracker = () => {
           </div>
         </div>
 
-      </div>{/* End 3-Panel Grid */}
+      </div>
+      )}{/* End Food tab */}
+
+      {activeTab === 'fitness' && (
+        <FitnessView
+          exercises={exercises}
+          onAddExercise={async (ex) => {
+            const ok = await addExercise(ex);
+            if (ok) setExercises(await getExercises());
+            return ok;
+          }}
+          onDeleteExercise={async (ex) => {
+            if (confirm(`Remove "${ex.name}" from your exercise library?`)) {
+              await deleteExercise(ex.id);
+              setExercises(prev => prev.filter(e => e.id !== ex.id));
+            }
+          }}
+        />
+      )}
 
       {/* Vitals Slide-in Panel */}
       <VitalsPanel

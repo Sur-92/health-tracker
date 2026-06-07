@@ -9,6 +9,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteFood: (foodId) => ipcRenderer.invoke('db:deleteFood', foodId),
   updateFood: (foodId, updates) => ipcRenderer.invoke('db:updateFood', foodId, updates),
 
+  // Exercise library
+  getExercises: () => ipcRenderer.invoke('db:getExercises'),
+  addExercise: (ex) => ipcRenderer.invoke('db:addExercise', ex),
+  deleteExercise: (id) => ipcRenderer.invoke('db:deleteExercise', id),
+  updateExercise: (id, updates) => ipcRenderer.invoke('db:updateExercise', id, updates),
+
   // Daily logs
   saveDayLog: (date, foods) => ipcRenderer.invoke('db:saveDayLog', date, foods),
   getDayLog: (date) => ipcRenderer.invoke('db:getDayLog', date),

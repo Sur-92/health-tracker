@@ -350,6 +350,20 @@ function migrateSchema() {
     )
   `);
 
+  // Exercise library (shared, like foods). Muscle lists stored as JSON arrays
+  // of react-body-highlighter muscle IDs. Created unconditionally.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT,
+      equipment TEXT,
+      primaryMuscles TEXT,
+      secondaryMuscles TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   const migrate = db.transaction(() => {
     // person_id on per-person row tables (existing tables → backfill to person 1)
     for (const t of ['vitals', 'daily_logs']) {
@@ -484,6 +498,32 @@ function registerIpcHandlers() {
     const setClause = keys.map((k) => `${k} = ?`).join(', ');
     const values = keys.map((k) => updates[k]);
     db.prepare(`UPDATE foods SET ${setClause} WHERE id = ?`).run(...values, foodId);
+    return true;
+  });
+
+  // Exercise library handlers (shared, like foods)
+  ipcMain.handle('db:getExercises', () => db.prepare('SELECT * FROM exercises ORDER BY name').all());
+
+  ipcMain.handle('db:addExercise', (event, ex) => {
+    const exists = db.prepare('SELECT COUNT(*) as count FROM exercises WHERE name = ?').get(ex.name);
+    if (exists.count > 0) return false;
+    db.prepare('INSERT INTO exercises (name, category, equipment, primaryMuscles, secondaryMuscles) VALUES (?, ?, ?, ?, ?)')
+      .run(ex.name, ex.category || null, ex.equipment || null, JSON.stringify(ex.primaryMuscles || []), JSON.stringify(ex.secondaryMuscles || []));
+    return true;
+  });
+
+  ipcMain.handle('db:deleteExercise', (event, id) => {
+    db.prepare('DELETE FROM exercises WHERE id = ?').run(id);
+    return true;
+  });
+
+  ipcMain.handle('db:updateExercise', (event, id, updates) => {
+    const allowed = ['name', 'category', 'equipment', 'primaryMuscles', 'secondaryMuscles'];
+    const keys = Object.keys(updates || {}).filter((k) => allowed.includes(k));
+    if (keys.length === 0) return false;
+    const setClause = keys.map((k) => `${k} = ?`).join(', ');
+    const values = keys.map((k) => (k === 'primaryMuscles' || k === 'secondaryMuscles') ? JSON.stringify(updates[k] || []) : updates[k]);
+    db.prepare(`UPDATE exercises SET ${setClause} WHERE id = ?`).run(...values, id);
     return true;
   });
 

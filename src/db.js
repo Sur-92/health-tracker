@@ -131,6 +131,18 @@ function ensureTablesExist() {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT,
+      equipment TEXT,
+      primaryMuscles TEXT,
+      secondaryMuscles TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS user_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       name TEXT,
@@ -320,6 +332,77 @@ export async function updateFood(foodId, updates) {
   const setClause = keys.map((k) => `${k} = ?`).join(', ');
   const values = keys.map((k) => updates[k]);
   db.run(`UPDATE foods SET ${setClause} WHERE id = ?`, [...values, foodId]);
+  await saveToIndexedDB();
+  return true;
+}
+
+// ============================================
+// EXERCISE LIBRARY (shared; muscles stored as JSON arrays of muscle IDs)
+// ============================================
+
+function parseMuscles(v) {
+  if (Array.isArray(v)) return v;
+  if (!v) return [];
+  try { return JSON.parse(v); } catch { return []; }
+}
+
+const MUSCLE_FIELDS = ['primaryMuscles', 'secondaryMuscles'];
+
+export async function getExercises() {
+  let rows;
+  if (isElectron) {
+    rows = await window.electronAPI.getExercises();
+  } else {
+    await initWebDatabase();
+    const results = db.exec('SELECT * FROM exercises ORDER BY name');
+    rows = results.length === 0 ? [] : results[0].values.map((row) => {
+      const o = {};
+      results[0].columns.forEach((c, i) => { o[c] = row[i]; });
+      return o;
+    });
+  }
+  return rows.map((r) => ({ ...r, primaryMuscles: parseMuscles(r.primaryMuscles), secondaryMuscles: parseMuscles(r.secondaryMuscles) }));
+}
+
+export async function addExercise(ex) {
+  if (isElectron) {
+    return window.electronAPI.addExercise(ex);
+  }
+
+  await initWebDatabase();
+  const existing = db.exec('SELECT COUNT(*) FROM exercises WHERE name = ?', [ex.name]);
+  if (existing.length && existing[0].values[0][0] > 0) return false;
+  db.run(
+    'INSERT INTO exercises (name, category, equipment, primaryMuscles, secondaryMuscles) VALUES (?, ?, ?, ?, ?)',
+    [ex.name, ex.category || null, ex.equipment || null, JSON.stringify(ex.primaryMuscles || []), JSON.stringify(ex.secondaryMuscles || [])]
+  );
+  await saveToIndexedDB();
+  return true;
+}
+
+export async function deleteExercise(id) {
+  if (isElectron) {
+    return window.electronAPI.deleteExercise(id);
+  }
+
+  await initWebDatabase();
+  db.run('DELETE FROM exercises WHERE id = ?', [id]);
+  await saveToIndexedDB();
+  return true;
+}
+
+export async function updateExercise(id, updates) {
+  if (isElectron) {
+    return window.electronAPI.updateExercise(id, updates);
+  }
+
+  await initWebDatabase();
+  const allowed = ['name', 'category', 'equipment', 'primaryMuscles', 'secondaryMuscles'];
+  const keys = Object.keys(updates || {}).filter((k) => allowed.includes(k));
+  if (keys.length === 0) return false;
+  const setClause = keys.map((k) => `${k} = ?`).join(', ');
+  const values = keys.map((k) => (MUSCLE_FIELDS.includes(k) ? JSON.stringify(updates[k] || []) : updates[k]));
+  db.run(`UPDATE exercises SET ${setClause} WHERE id = ?`, [...values, id]);
   await saveToIndexedDB();
   return true;
 }
