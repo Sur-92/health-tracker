@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Children } from 'react';
 import { getAllFoods, addFood, deleteFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
-listPeople, getActivePerson, setActivePerson, addPerson } from './db';
+listPeople, getActivePerson, setActivePerson, addPerson, getWater as getWaterDb, saveWater as saveWaterDb } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
 import { computeWeightLoss } from './weightLoss';
@@ -1639,31 +1639,43 @@ const HealthTracker = () => {
   const WATER_GOAL = nutritionConfig ? getWaterTarget(nutritionConfig) : 0; // oz — optional goal marker
   const FASTING_KEY = 'health-tracker-fasting';
 
-  // Water tracking helpers (stored in ounces)
-  const getWaterKey = (date) => `health-tracker-water-oz-${date}`;
-
-  const loadWater = (date) => {
+  // Water tracking helpers — stored per-person in the DB (rides cloud backup).
+  const loadWater = async (date) => {
     try {
-      const saved = localStorage.getItem(getWaterKey(date));
-      return saved ? parseInt(saved, 10) : 0;
+      return await getWaterDb(date);
     } catch { return 0; }
-  };
-
-  const saveWater = (date, oz) => {
-    try {
-      localStorage.setItem(getWaterKey(date), oz.toString());
-    } catch (e) { console.error('Error saving water:', e); }
   };
 
   // Set water to an absolute oz amount, clamped to the 0–100 scale
   const setWater = (oz) => {
     const clamped = Math.max(0, Math.min(WATER_MAX, oz));
     setWaterOz(clamped);
-    saveWater(selectedDate, clamped);
+    saveWaterDb(selectedDate, clamped).catch(e => console.error('Error saving water:', e));
   };
 
   const addWater = () => setWater(waterOz + WATER_STEP);
   const removeWater = () => setWater(waterOz - WATER_STEP);
+
+  // One-time migration: move legacy localStorage water into the DB so existing
+  // intake isn't lost. Unscoped localStorage history attaches to whoever is the
+  // active person at first run (the primary user, person #1 by default).
+  const migrateLocalWater = async () => {
+    try {
+      if (localStorage.getItem('health-tracker-water-migrated')) return;
+      const prefix = 'health-tracker-water-oz-';
+      const entries = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          const date = key.slice(prefix.length);
+          const oz = parseInt(localStorage.getItem(key), 10);
+          if (date && Number.isFinite(oz) && oz > 0) entries.push([date, oz]);
+        }
+      }
+      for (const [date, oz] of entries) await saveWaterDb(date, oz);
+      localStorage.setItem('health-tracker-water-migrated', '1');
+    } catch (e) { console.error('Water migration failed:', e); }
+  };
 
   // Fasting tracking helpers
   const loadFastingData = () => {
@@ -1739,7 +1751,7 @@ const HealthTracker = () => {
       }
     }
     loadData();
-    setWaterOz(loadWater(today));
+    migrateLocalWater().then(() => loadWater(today)).then(setWaterOz);
     loadVitalsForDate(today);
     loadUserSettings();
     loadAllVitalsData();
@@ -1793,7 +1805,7 @@ const HealthTracker = () => {
 
   // Load water and vitals when date changes
   useEffect(() => {
-    setWaterOz(loadWater(selectedDate));
+    loadWater(selectedDate).then(setWaterOz);
     loadVitalsForDate(selectedDate);
   }, [selectedDate]);
 

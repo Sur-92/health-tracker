@@ -20,6 +20,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteVital: (vitalId) => ipcRenderer.invoke('db:deleteVital', vitalId),
   getVitalsRange: (startDate, endDate) => ipcRenderer.invoke('db:getVitalsRange', startDate, endDate),
 
+  // Water (per-person daily ounces)
+  getWater: (date) => ipcRenderer.invoke('db:getWater', date),
+  setWater: (date, oz) => ipcRenderer.invoke('db:setWater', date, oz),
+
   // Settings
   getSettings: () => ipcRenderer.invoke('db:getSettings'),
   saveSettings: (settings) => ipcRenderer.invoke('db:saveSettings', settings),

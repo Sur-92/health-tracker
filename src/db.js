@@ -124,6 +124,13 @@ function ensureTablesExist() {
   db.run(`CREATE INDEX IF NOT EXISTS idx_vitals_date ON vitals(date)`);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS water (
+      date TEXT PRIMARY KEY,
+      oz REAL DEFAULT 0
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS user_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       name TEXT,
@@ -485,6 +492,32 @@ export async function getVitalsRange(startDate, endDate) {
     });
     return vital;
   });
+}
+
+// ============================================
+// WATER FUNCTIONS (per-person on desktop; single-person on web)
+// ============================================
+
+export async function getWater(date) {
+  if (isElectron) {
+    return window.electronAPI.getWater(date);
+  }
+
+  await initWebDatabase();
+  const results = db.exec('SELECT oz FROM water WHERE date = ?', [date]);
+  if (results.length === 0 || results[0].values.length === 0) return 0;
+  return results[0].values[0][0] || 0;
+}
+
+export async function saveWater(date, oz) {
+  if (isElectron) {
+    return window.electronAPI.setWater(date, oz);
+  }
+
+  await initWebDatabase();
+  db.run('INSERT OR REPLACE INTO water (date, oz) VALUES (?, ?)', [date, oz]);
+  await saveToIndexedDB();
+  return true;
 }
 
 // ============================================

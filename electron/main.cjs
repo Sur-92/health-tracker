@@ -339,6 +339,17 @@ function migrateSchema() {
     )
   `);
 
+  // Per-person daily water intake (ounces). Created unconditionally so DBs
+  // already at schema_version 2 also pick it up.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS water (
+      person_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      oz REAL DEFAULT 0,
+      PRIMARY KEY (person_id, date)
+    )
+  `);
+
   const migrate = db.transaction(() => {
     // person_id on per-person row tables (existing tables → backfill to person 1)
     for (const t of ['vitals', 'daily_logs']) {
@@ -542,6 +553,19 @@ function registerIpcHandlers() {
   ipcMain.handle('db:getVitalsRange', (event, startDate, endDate) => {
     const stmt = db.prepare('SELECT * FROM vitals WHERE date >= ? AND date <= ? AND person_id = ? ORDER BY date ASC, time ASC');
     return stmt.all(startDate, endDate, activePersonId());
+  });
+
+  // Water handlers — per-person daily ounces, scoped to the active person
+  ipcMain.handle('db:getWater', (event, date) => {
+    const row = db.prepare('SELECT oz FROM water WHERE date = ? AND person_id = ?').get(date, activePersonId());
+    return row ? row.oz : 0;
+  });
+
+  ipcMain.handle('db:setWater', (event, date, oz) => {
+    db.prepare(`INSERT INTO water (person_id, date, oz) VALUES (?, ?, ?)
+                ON CONFLICT(person_id, date) DO UPDATE SET oz = excluded.oz`)
+      .run(activePersonId(), date, oz);
+    return true;
   });
 
   // Settings handlers — operate on the active person's `people` row
