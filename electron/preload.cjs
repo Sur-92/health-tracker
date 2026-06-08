@@ -20,6 +20,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWorkout: (date) => ipcRenderer.invoke('db:getWorkout', date),
   getWorkoutRange: (startDate, endDate) => ipcRenderer.invoke('db:getWorkoutRange', startDate, endDate),
 
+  // Time logs (sleep + driving)
+  saveTimeLog: (date, entries) => ipcRenderer.invoke('db:saveTimeLog', date, entries),
+  getTimeLog: (date) => ipcRenderer.invoke('db:getTimeLog', date),
+
   // Daily logs
   saveDayLog: (date, foods) => ipcRenderer.invoke('db:saveDayLog', date, foods),
   getDayLog: (date) => ipcRenderer.invoke('db:getDayLog', date),

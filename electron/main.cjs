@@ -381,6 +381,18 @@ function migrateSchema() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_workout_logs_person_date ON workout_logs(person_id, date)');
 
+  // Per-person daily time logs: sleep (by type) + driving, entries as JSON.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS time_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      person_id INTEGER DEFAULT 1,
+      log_data TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_time_logs_person_date ON time_logs(person_id, date)');
+
   const migrate = db.transaction(() => {
     // person_id on per-person row tables (existing tables → backfill to person 1)
     for (const t of ['vitals', 'daily_logs']) {
@@ -568,6 +580,22 @@ function registerIpcHandlers() {
     const all = [];
     rows.forEach((r) => { try { all.push(...JSON.parse(r.log_data)); } catch { /* skip */ } });
     return all;
+  });
+
+  // Time logs — sleep + driving, per-person, per-date
+  ipcMain.handle('db:saveTimeLog', (event, date, entries) => {
+    const pid = activePersonId();
+    db.prepare('DELETE FROM time_logs WHERE date = ? AND person_id = ?').run(date, pid);
+    if (entries && entries.length > 0) {
+      db.prepare('INSERT INTO time_logs (date, log_data, person_id) VALUES (?, ?, ?)').run(date, JSON.stringify(entries), pid);
+    }
+    return true;
+  });
+
+  ipcMain.handle('db:getTimeLog', (event, date) => {
+    const row = db.prepare('SELECT log_data FROM time_logs WHERE date = ? AND person_id = ?').get(date, activePersonId());
+    if (!row) return [];
+    try { return JSON.parse(row.log_data); } catch { return []; }
   });
 
   ipcMain.handle('db:saveDayLog', (event, date, foods) => {

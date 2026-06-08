@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Children } from 'react';
 import Model from 'react-body-highlighter';
-import { getExercises, addExercise, deleteExercise, getWorkout, saveWorkout, getWorkoutRange, getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
+import { getExercises, addExercise, deleteExercise, getWorkout, saveWorkout, getWorkoutRange, getTimeLog, saveTimeLog, getAllFoods, addFood, deleteFood, updateFood, saveDayLog, getDayLog, getAllDayLogs, addVital, getVitalsForDate, deleteVital, getAllVitals, getSettings, saveSettings, getNutritionConfig, saveNutritionConfig, backupData, restoreData, undoRestore, hasPreRestore, canBackup,
 listPeople, getActivePerson, setActivePerson, addPerson, getWater as getWaterDb, saveWater as saveWaterDb } from './db';
 import { defaultNutritionConfig, configToRda, getWaterTarget } from './defaultNutritionConfig';
 import { computeBrainScore, computeHeartScore, scoreColor } from './brainHeartScore';
@@ -673,6 +673,103 @@ const QuickAddItem = ({ food, onAdd, onDelete, onRename }) => {
 };
 
 // Vitals Panel Component
+const SLEEP_TYPES = [
+  { key: 'sleep_night', label: 'Night sleep', icon: '🌙' },
+  { key: 'sleep_nap', label: 'Day nap (in bed)', icon: '🛏️' },
+  { key: 'sleep_recliner', label: 'Recliner snooze', icon: '💺' },
+  { key: 'driving', label: 'Driving', icon: '🚗' },
+];
+const timeTypeMeta = (k) => SLEEP_TYPES.find((t) => t.key === k) || { label: k, icon: '•' };
+
+const SleepPanel = ({ isOpen, onClose, selectedDate, entries, onAdd, onRemove, formatTime }) => {
+  const [hoursByType, setHoursByType] = useState({});
+  const setH = (k, v) => setHoursByType((p) => ({ ...p, [k]: v }));
+  const addType = (k) => {
+    const h = parseFloat(hoursByType[k]);
+    if (!h || h <= 0) return;
+    onAdd(k, h);
+    setH(k, '');
+  };
+
+  const sum = (pred) => entries.filter(pred).reduce((s, e) => s + (e.hours || 0), 0);
+  const totalSleep = sum((e) => String(e.type).startsWith('sleep'));
+  const totalDriving = sum((e) => e.type === 'driving');
+
+  return (
+    <>
+      {isOpen && <div className="fixed inset-0 bg-black/30 z-40 transition-opacity" onClick={onClose} />}
+      <div className={`fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="h-full flex flex-col">
+          <div className="bg-gradient-to-r from-indigo-500 to-violet-500 p-4 text-white">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold flex items-center gap-2"><span>😴</span> Sleep & Driving</h2>
+              <button onClick={onClose} className="bg-white/20 hover:bg-white/30 w-8 h-8 rounded flex items-center justify-center">✕</button>
+            </div>
+            <p className="text-sm text-white/80 mt-1">{selectedDate}</p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* Quick log by type */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <h3 className="font-bold text-gray-700 text-sm mb-2">📝 Log hours</h3>
+              {SLEEP_TYPES.map((t) => (
+                <div key={t.key} className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600 flex-1 truncate">{t.icon} {t.label}</label>
+                  <input
+                    type="number" step="0.25" min="0"
+                    value={hoursByType[t.key] || ''}
+                    onChange={(e) => setH(t.key, e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addType(t.key); }}
+                    placeholder="hrs"
+                    className="w-16 border rounded px-2 py-1 text-sm text-center"
+                  />
+                  <button onClick={() => addType(t.key)} className="bg-indigo-500 hover:bg-indigo-600 text-white w-7 h-7 rounded text-sm">+</button>
+                </div>
+              ))}
+            </div>
+
+            {/* Totals */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center">
+                <div className="text-[10px] font-semibold text-indigo-700 uppercase tracking-wide">Total sleep</div>
+                <div className="text-2xl font-bold text-gray-800">{totalSleep.toFixed(1)}<span className="text-xs font-medium text-gray-500"> h</span></div>
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center">
+                <div className="text-[10px] font-semibold text-orange-700 uppercase tracking-wide">Driving</div>
+                <div className="text-2xl font-bold text-gray-800">{totalDriving.toFixed(1)}<span className="text-xs font-medium text-gray-500"> h</span></div>
+              </div>
+            </div>
+
+            {/* Entries */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="font-bold text-gray-700 text-sm mb-3">📊 Today's Log ({entries.length})</h3>
+              {entries.length === 0 ? (
+                <p className="text-gray-400 text-center py-4 text-sm">Nothing logged yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {entries.map((e) => {
+                    const m = timeTypeMeta(e.type);
+                    return (
+                      <div key={e.id} className="bg-white rounded p-2 border text-sm group flex justify-between items-center">
+                        <span className="truncate">{m.icon} {m.label}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-medium">{e.hours} h</span>
+                          <span className="text-gray-400 text-xs">{formatTime(e.time)}</span>
+                          <button onClick={() => onRemove(e.id)} className="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
 const VitalsPanel = ({ isOpen, onClose, selectedDate, vitals, onAddVital, onDeleteVital, formatTime }) => {
   const [weight, setWeight] = useState('');
   const [systolicBP, setSystolicBP] = useState('');
@@ -1935,6 +2032,8 @@ const HealthTracker = () => {
   const [exercises, setExercises] = useState([]);
   const [workout, setWorkout] = useState([]);
   const [workoutWindow, setWorkoutWindow] = useState([]);
+  const [timeLog, setTimeLog] = useState([]);
+  const [sleepOpen, setSleepOpen] = useState(false);
   const [inputError, setInputError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveMessage, setSaveMessage] = useState('');
@@ -2134,6 +2233,7 @@ const HealthTracker = () => {
     loadWater(selectedDate).then(setWaterOz);
     loadVitalsForDate(selectedDate);
     refreshWorkout(selectedDate);
+    getTimeLog(selectedDate).then(setTimeLog);
   }, [selectedDate]);
 
   // Load vitals for a specific date
@@ -2205,6 +2305,14 @@ const HealthTracker = () => {
   };
   const updateWorkoutEntry = (id, patch) => persistWorkout(workout.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   const removeWorkoutEntry = (id) => persistWorkout(workout.filter((e) => e.id !== id));
+
+  // --- Sleep & driving time logging ---
+  const persistTimeLog = async (next) => {
+    setTimeLog(next);
+    await saveTimeLog(selectedDate, next);
+  };
+  const addTimeEntry = (type, hours) => persistTimeLog([...timeLog, { id: Date.now() + Math.random(), time: getCurrentTimeString(), type, hours }]);
+  const removeTimeEntry = (id) => persistTimeLog(timeLog.filter((e) => e.id !== id));
 
   const formatTime = (timeStr) => {
     if (!timeStr) return '';
@@ -2661,6 +2769,13 @@ const HealthTracker = () => {
             >
               ❤️ {vitals.length > 0 && <span className="text-xs">({vitals.length})</span>}
             </button>
+            <button
+              onClick={() => setSleepOpen(true)}
+              className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all flex items-center gap-1"
+              title="Sleep & Driving"
+            >
+              😴 {timeLog.length > 0 && <span className="text-xs">({timeLog.length})</span>}
+            </button>
             <button onClick={saveDay} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all" title="Export Day">💾</button>
             <button onClick={() => fileInputRef.current?.click()} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded text-sm transition-all" title="Import">📂</button>
             {canBackup && (
@@ -3015,6 +3130,17 @@ const HealthTracker = () => {
         vitals={vitals}
         onAddVital={handleAddVital}
         onDeleteVital={handleDeleteVital}
+        formatTime={formatTime}
+      />
+
+      {/* Sleep & Driving Panel (Right Slide-in) */}
+      <SleepPanel
+        isOpen={sleepOpen}
+        onClose={() => setSleepOpen(false)}
+        selectedDate={selectedDate}
+        entries={timeLog}
+        onAdd={addTimeEntry}
+        onRemove={removeTimeEntry}
         formatTime={formatTime}
       />
 
